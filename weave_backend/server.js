@@ -2,13 +2,16 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Replace with your MongoDB connection string if not running locally
-const MONGO_URI = 'mongodb://127.0.0.1:27017/weave';
+require('dotenv').config();
+const MONGO_URI = process.env.MONGO_URI;
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_change_me';
 
 mongoose.connect(MONGO_URI).then(() => {
     console.log("Connected to MongoDB successfully!");
@@ -20,25 +23,46 @@ mongoose.connect(MONGO_URI).then(() => {
 const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
+    name: { type: String, required: true },
+    dob: { type: String, required: true },
+    phone: { type: String, required: true },
+    location: { type: String, required: true },
     isVolunteer: { type: Boolean, default: false }
 });
 
 const User = mongoose.model('User', userSchema);
 
+// Middleware to authenticate JWT
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+};
+
 // Register Route
 app.post('/register', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, name, dob, phone, location } = req.body;
         
         const existingUser = await User.findOne({ email });
         if (existingUser) {
             return res.status(400).json({ error: 'User already exists' });
         }
 
-        const user = new User({ email, password, isVolunteer: false });
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const user = new User({ email, password: hashedPassword, name, dob, phone, location, isVolunteer: false });
         await user.save();
         
-        res.status(201).json({ message: 'User registered successfully', user: { email: user.email, isVolunteer: user.isVolunteer }});
+        const token = jwt.sign({ email: user.email, id: user._id }, JWT_SECRET);
+        
+        res.status(201).json({ message: 'User registered successfully', token, user: { email: user.email, name: user.name, isVolunteer: user.isVolunteer }});
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -50,23 +74,47 @@ app.post('/login', async (req, res) => {
         const { email, password } = req.body;
         
         const user = await User.findOne({ email });
-        if (!user || user.password !== password) {
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const validPassword = await bcrypt.compare(password, user.password);
+        if (!validPassword) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
         
-        res.status(200).json({ message: 'Login successful', user: { email: user.email, isVolunteer: user.isVolunteer }});
+        const token = jwt.sign({ email: user.email, id: user._id }, JWT_SECRET);
+        
+        res.status(200).json({ message: 'Login successful', token, user: { email: user.email, name: user.name, isVolunteer: user.isVolunteer }});
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Profile Route
+app.get('/profile', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findOne({ email: req.user.email });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        
+        res.status(200).json({
+            email: user.email,
+            name: user.name,
+            dob: user.dob,
+            phone: user.phone,
+            location: user.location,
+            isVolunteer: user.isVolunteer
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 // Upgrade to Volunteer Route
-app.post('/upgrade-volunteer', async (req, res) => {
+app.post('/upgrade-volunteer', authenticateToken, async (req, res) => {
     try {
-        const { email } = req.body;
-        
         const user = await User.findOneAndUpdate(
-            { email }, 
+            { email: req.user.email }, 
             { isVolunteer: true },
             { new: true }
         );

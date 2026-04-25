@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 String? globalUserEmail;
+String? globalJwtToken;
+Map<String, dynamic>? globalUserData;
 
 void main() {
   runApp(const WeaveApp());
@@ -105,7 +107,12 @@ class BackgroundMapPage extends StatelessWidget {
                   child: GestureDetector(
                     onTap: () {
                       if (name == 'Profile region') {
-                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ProfilePage(),
+                          ),
+                        );
                       } else {
                         Navigator.push(
                           context,
@@ -204,6 +211,13 @@ class CivilianDashboardPage extends StatelessWidget {
                           builder: (context) =>
                               const VolunteerVerificationDialog(),
                         );
+                      } else if (name == 'Profile') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ProfilePage(),
+                          ),
+                        );
                       } else {
                         Navigator.push(
                           context,
@@ -237,22 +251,41 @@ class _LoginPageState extends State<LoginPage> {
   bool isLoading = false;
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  final nameController = TextEditingController();
+  final dobController = TextEditingController();
+  final phoneController = TextEditingController();
+  final locationController = TextEditingController();
 
   Future<void> submit() async {
     setState(() => isLoading = true);
     final url = isLogin ? 'http://127.0.0.1:3000/login' : 'http://127.0.0.1:3000/register';
+    
+    final body = isLogin 
+      ? {
+          'email': emailController.text.trim(),
+          'password': passwordController.text,
+        }
+      : {
+          'email': emailController.text.trim(),
+          'password': passwordController.text,
+          'name': nameController.text.trim(),
+          'dob': dobController.text.trim(),
+          'phone': phoneController.text.trim(),
+          'location': locationController.text.trim(),
+        };
+
     try {
       final res = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': emailController.text.trim(),
-          'password': passwordController.text,
-        }),
+        body: jsonEncode(body),
       );
       final data = jsonDecode(res.body);
       if (res.statusCode == 200 || res.statusCode == 201) {
         globalUserEmail = data['user']['email'];
+        globalJwtToken = data['token'];
+        globalUserData = data['user'];
+        
         final isVolunteer = data['user']['isVolunteer'] == true;
         if (isVolunteer) {
           Navigator.pushReplacement(
@@ -273,7 +306,7 @@ class _LoginPageState extends State<LoginPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Connection Error: $e')));
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -318,11 +351,24 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       if (!isLogin) ...[
                         const SizedBox(height: 10),
-                        const TextField(
-                          decoration: InputDecoration(
-                            labelText: 'Confirm Password',
-                          ),
-                          obscureText: true,
+                        TextField(
+                          controller: nameController,
+                          decoration: const InputDecoration(labelText: 'Full Name'),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: dobController,
+                          decoration: const InputDecoration(labelText: 'Date of Birth (YYYY-MM-DD)'),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: phoneController,
+                          decoration: const InputDecoration(labelText: 'Phone Number'),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: locationController,
+                          decoration: const InputDecoration(labelText: 'Location / Address'),
                         ),
                       ],
                       const SizedBox(height: 20),
@@ -347,24 +393,6 @@ class _LoginPageState extends State<LoginPage> {
                               ? 'Create an account'
                               : 'Already have an account? Login',
                         ),
-                      ),
-                      const Divider(height: 30),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.bolt),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.deepPurple,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const CivilianDashboardPage(),
-                            ),
-                          );
-                        },
-                        label: const Text('Demo Login'),
                       ),
                     ],
                   ),
@@ -400,8 +428,10 @@ class _VolunteerVerificationDialogState
     try {
       final res = await http.post(
         Uri.parse('http://127.0.0.1:3000/upgrade-volunteer'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': globalUserEmail}),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $globalJwtToken',
+        },
       );
       if (res.statusCode == 200) {
         Navigator.pop(context);
@@ -461,26 +491,160 @@ class _VolunteerVerificationDialogState
                       width: 20, height: 20, child: CircularProgressIndicator())
                   : const Text('Submit Application'),
             ),
-            const Divider(height: 30),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.bolt),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () {
-                Navigator.pop(context); // Close dialog
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const BackgroundMapPage(),
-                  ),
-                );
-              },
-              label: const Text('Demo Login (Bypass)'),
-            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  Map<String, dynamic>? profileData = globalUserData;
+  bool isLoading = false;
+  String? errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchProfile();
+  }
+
+  Future<void> fetchProfile() async {
+    if (globalJwtToken == null) return;
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+    });
+    try {
+      final res = await http.get(
+        Uri.parse('http://127.0.0.1:3000/profile'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $globalJwtToken',
+        },
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          profileData = jsonDecode(res.body);
+          globalUserData = profileData;
+        });
+      } else {
+        setState(() {
+          errorMessage = 'Failed to load profile. Error code: ${res.statusCode}';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = 'Network error: $e';
+      });
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.blueGrey[50],
+      appBar: AppBar(
+        title: const Text('My Profile'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: isLoading
+            ? const CircularProgressIndicator()
+            : errorMessage != null
+                ? Text(errorMessage!, style: const TextStyle(color: Colors.red))
+                : profileData == null
+                    ? const Text('No profile data found.')
+                    : SingleChildScrollView(
+                        child: Card(
+                          margin: const EdgeInsets.all(20),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const CircleAvatar(
+                                  radius: 50,
+                                  backgroundColor: Colors.deepPurple,
+                                  child: Icon(Icons.person, size: 50, color: Colors.white),
+                                ),
+                                const SizedBox(height: 20),
+                                Text(
+                                  profileData!['name'] ?? 'Unknown Name',
+                                  style: const TextStyle(
+                                      fontSize: 28, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 10),
+                                Chip(
+                                  label: Text(
+                                    profileData!['isVolunteer'] == true
+                                        ? 'Verified Volunteer'
+                                        : 'Civilian',
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                  backgroundColor: profileData!['isVolunteer'] == true
+                                      ? Colors.green
+                                      : Colors.blue,
+                                ),
+                                const Divider(height: 40),
+                                ListTile(
+                                  leading: const Icon(Icons.email),
+                                  title: const Text('Email'),
+                                  subtitle: Text(profileData!['email'] ?? 'N/A'),
+                                ),
+                                ListTile(
+                                  leading: const Icon(Icons.phone),
+                                  title: const Text('Phone'),
+                                  subtitle: Text(profileData!['phone'] ?? 'N/A'),
+                                ),
+                                ListTile(
+                                  leading: const Icon(Icons.cake),
+                                  title: const Text('Date of Birth'),
+                                  subtitle: Text(profileData!['dob'] ?? 'N/A'),
+                                ),
+                                ListTile(
+                                  leading: const Icon(Icons.location_on),
+                                  title: const Text('Location'),
+                                  subtitle: Text(profileData!['location'] ?? 'N/A'),
+                                ),
+                                const SizedBox(height: 20),
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    globalUserEmail = null;
+                                    globalJwtToken = null;
+                                    globalUserData = null;
+                                    Navigator.pushAndRemoveUntil(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => const LoginPage(),
+                                      ),
+                                      (Route<dynamic> route) => false,
+                                    );
+                                  },
+                                  icon: const Icon(Icons.logout),
+                                  label: const Text('Logout'),
+                                  style: ElevatedButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
       ),
     );
   }
