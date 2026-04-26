@@ -4,10 +4,33 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+// Create uploads directory if it doesn't exist
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Set up Multer storage
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/')
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + path.extname(file.originalname))
+    }
+});
+const upload = multer({ storage: storage });
 
 require('dotenv').config();
 const MONGO_URI = process.env.MONGO_URI;
@@ -31,6 +54,39 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
+
+// Problem Schema
+const problemSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    location: { type: String, required: true },
+    imageUrl: { type: String, required: true },
+    reportedBy: { type: String, required: true }, // email
+    createdAt: { type: Date, default: Date.now }
+});
+
+const Problem = mongoose.model('Problem', problemSchema);
+
+// Survey Schema
+const surveySchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    questions: { type: Array, required: true },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const Survey = mongoose.model('Survey', surveySchema);
+
+// Survey Response Schema
+const surveyResponseSchema = new mongoose.Schema({
+    surveyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Survey', required: true },
+    userEmail: { type: String, required: true },
+    userName: { type: String, required: true },
+    responses: { type: Array, required: true }, // Array of { questionId, answer }
+    createdAt: { type: Date, default: Date.now }
+});
+
+const SurveyResponse = mongoose.model('SurveyResponse', surveyResponseSchema);
 
 // Middleware to authenticate JWT
 const authenticateToken = (req, res, next) => {
@@ -129,7 +185,105 @@ app.post('/upgrade-volunteer', authenticateToken, async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
+// Report Problem Route
+app.post('/report-problem', authenticateToken, upload.single('image'), async (req, res) => {
+    try {
+        const { title, description, location } = req.body;
+        
+        if (!req.file) {
+            return res.status(400).json({ error: 'Image is required' });
+        }
+
+        const imageUrl = `/uploads/${req.file.filename}`;
+
+        const problem = new Problem({
+            title,
+            description,
+            location,
+            imageUrl,
+            reportedBy: req.user.email
+        });
+
+        await problem.save();
+        res.status(201).json({ message: 'Problem reported successfully', problem });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create Survey Route
+app.post('/surveys', async (req, res) => {
+    try {
+        const { title, description, questions } = req.body;
+        const survey = new Survey({ title, description, questions });
+        await survey.save();
+        res.status(201).json({ message: 'Survey created successfully', survey });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Surveys Route
+app.get('/surveys', async (req, res) => {
+    try {
+        const surveys = await Survey.find().sort({ createdAt: -1 });
+        // Optionally attach response count
+        const surveysWithCounts = await Promise.all(surveys.map(async (survey) => {
+            const count = await SurveyResponse.countDocuments({ surveyId: survey._id });
+            return { ...survey.toObject(), responsesCount: count };
+        }));
+        res.status(200).json(surveysWithCounts);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Submit Survey Response Route
+app.post('/surveys/:id/responses', authenticateToken, async (req, res) => {
+    try {
+        const surveyId = req.params.id;
+        const { responses } = req.body;
+        const userEmail = req.user.email;
+
+        const user = await User.findOne({ email: userEmail });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // If civilian, check if already submitted
+        if (!user.isVolunteer) {
+            const existingResponse = await SurveyResponse.findOne({ surveyId, userEmail });
+            if (existingResponse) {
+                return res.status(403).json({ error: 'Civilians can only submit one response for this survey.' });
+            }
+        }
+
+        const surveyResponse = new SurveyResponse({
+            surveyId,
+            userEmail,
+            userName: user.name,
+            responses
+        });
+
+        await surveyResponse.save();
+        res.status(201).json({ message: 'Response submitted successfully', surveyResponse });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Survey Responses Analytics
+app.get('/surveys/:id/responses', async (req, res) => {
+    try {
+        const surveyId = req.params.id;
+        const responses = await SurveyResponse.find({ surveyId }).sort({ createdAt: -1 });
+        res.status(200).json(responses);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
 });
