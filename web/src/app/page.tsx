@@ -1,586 +1,532 @@
 "use strict";
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, X, FileText, ClipboardList, Flame, ShieldCheck, User, MessageCircle, MessageSquare, Bot, Send, Camera, Loader2, Zap, Droplets, Construction, CheckCircle2, ChevronDown, ChevronUp, ThumbsUp, Map, Ghost } from "lucide-react";
+import { 
+  Users, 
+  Briefcase, 
+  ClipboardList, 
+  Network, 
+  Map as MapIcon, 
+  X, 
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  User,
+  MessageSquare,
+  Bot,
+  Send,
+  Loader2,
+  CheckCircle2,
+  Globe,
+  Heart,
+  Target,
+  Star,
+  Flower2,
+  Settings,
+  Pentagon as PentagonIcon
+} from "lucide-react";
 
-const PIN_ICONS: Record<string, any> = {
-  "Submit a Report": FileText,
-  "Ticket Status": ClipboardList,
-  "Heat Map": Flame,
-  "Audit": ShieldCheck,
-  "Profile": User,
-  "WhatsApp Bot": MessageCircle,
-};
+// --- Custom Icons ---
 
-type Section = "Submit a Report" | "Ticket Status" | "Heat Map" | "Audit" | "Profile" | "WhatsApp Bot";
+const Pentagon = ({ size, fill, stroke, strokeWidth, className }: any) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" className={className}>
+    <path
+      d="M50 5 L95 38 L78 95 L22 95 L5 38 Z"
+      fill={fill}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+    />
+  </svg>
+);
 
-interface PinPosition {
+// --- Types & Constants ---
+
+type Section = "Volunteers" | "Impact Projects" | "Survey Loom" | "NGO Network" | "Community Fabric" | "Profile";
+
+interface HubPoint {
   section: Section;
   top: string;
   left: string;
+  icon: any;
+  description: string;
+  shape: "circle" | "heart" | "star" | "flower" | "pentagon";
+  color: string;
 }
 
-// Scattered pins across the screen
-const PINS: PinPosition[] = [
-  { section: "Submit a Report", top: "25%", left: "30%" },
-  { section: "Ticket Status", top: "45%", left: "60%" },
-  { section: "Heat Map", top: "68%", left: "20%" },
-  { section: "Audit", top: "74%", left: "70%" },
-  { section: "Profile", top: "20%", left: "80%" },
-  { section: "WhatsApp Bot", top: "65%", left: "45%" },
+const HUB_POINTS: HubPoint[] = [
+  { section: "Volunteers", top: "25%", left: "30%", icon: Users, description: "Manage and recruit community threads", shape: "pentagon", color: "#f4dada" },
+  { section: "Impact Projects", top: "45%", left: "65%", icon: Briefcase, description: "Track ongoing social weaving projects", shape: "pentagon", color: "#e8d5d5" },
+  { section: "Survey Loom", top: "70%", left: "22%", icon: ClipboardList, description: "Collect data from the field", shape: "pentagon", color: "#d8e6e0" },
+  { section: "NGO Network", top: "74%", left: "72%", icon: Network, description: "Coordinate with partner organizations", shape: "pentagon", color: "#fdf6e3" },
+  { section: "Community Fabric", top: "20%", left: "82%", icon: MapIcon, description: "Visualize the social landscape", shape: "pentagon", color: "#f4dada" },
 ];
 
-const ISSUE_CATEGORIES: Record<string, string[]> = {
-  Electricity: ["Loose wires", "Short circuit", "Electricity poles", "Others"],
-  PWD: ["Potholes", "Infrastructure", "Others"],
-  Water: ["Leakage", "Contaminated water", "No supply", "Shortage", "Others"],
+const THEME = {
+  background: "#fcf8f6", // Slightly warmer cream
+  foreground: "#4a3e3e", // Deep cocoa for text
+  mauve: "#e8d5d5",
+  rose: "#f4dada",
+  mint: "#d8e6e0",
+  cream: "#fff9f5",
+  gold: "#d4af37",
+  silk: "rgba(255, 255, 255, 0.4)",
 };
 
-function ReportForm({ onSubmit }: { onSubmit: () => void }) {
-  const user = { id: "mocked-user" };
-  const [department, setDepartment] = useState("");
-  const [issueType, setIssueType] = useState("");
-  const [description, setDescription] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submittedTicketId, setSubmittedTicketId] = useState<string | null>(null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [nearbyDuplicate, setNearbyDuplicate] = useState<any>(null);
-  const [isGhostMode, setIsGhostMode] = useState(false);
-  const [forceNew, setForceNew] = useState(false);
-  
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+// --- Components ---
 
-    let lat = null;
-    let lng = null;
-
-    if (navigator.geolocation) {
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject);
-        });
-        lat = pos.coords.latitude;
-        lng = pos.coords.longitude;
-      } catch (err) {
-        console.warn("Geolocation denied or failed, using backend defaults.");
-      }
-    }
-
-    try {
-      // Mocking submission since backend endpoints don't exist yet
-      setTimeout(() => {
-        const shortId = Math.random().toString(36).substring(2, 10).toUpperCase();
-        const existing = JSON.parse(localStorage.getItem('citysync_tickets') || '[]');
-        existing.push({
-          id: shortId,
-          shortId,
-          category: issueType,
-          date: new Date().toISOString(),
-          status: 'open'
-        });
-        localStorage.setItem('citysync_tickets', JSON.stringify(existing));
-        setSubmittedTicketId(shortId);
-        setIsSubmitting(false);
-      }, 1500);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to connect to server.");
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleUpvoteDuplicate = async () => {
-    if (!nearbyDuplicate) return;
-    setIsSubmitting(true);
-    setTimeout(() => {
-      const existing = JSON.parse(localStorage.getItem('citysync_tickets') || '[]');
-      existing.push({
-        id: nearbyDuplicate.id,
-        shortId: nearbyDuplicate.cluster_id.substring(0, 8).toUpperCase(),
-        category: nearbyDuplicate.category,
-        date: new Date().toISOString()
-      });
-      localStorage.setItem('citysync_tickets', JSON.stringify(existing));
-      setSubmittedTicketId(nearbyDuplicate.cluster_id.substring(0, 8).toUpperCase());
-      setIsSubmitting(false);
-    }, 1000);
-  };
-
-  if (submittedTicketId) {
-    return (
-      <div className="flex flex-col items-center justify-center text-center space-y-6 py-6 animate-in fade-in zoom-in duration-500">
-        <div className="relative">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="w-20 h-20 rounded-full bg-green-500/10 flex items-center justify-center border-4 border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.3)]"
-          >
-            <CheckCircle2 size={40} className="text-green-600" />
-          </motion.div>
-        </div>
-        <div className="space-y-1">
-          <h3 className="text-2xl font-black text-[#1E3A8A] tracking-tighter">CONTRIBUTION RECEIVED</h3>
-          <p className="text-[#1E3A8A]/60 font-medium text-sm">Thank you for helping us synchronize the city.</p>
-        </div>
-        <div className="bg-white/40 backdrop-blur-md p-6 border-2 border-dashed border-[#1E3A8A]/30 rounded-xl mt-4 w-full relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-16 h-16 bg-[#1E3A8A]/5 -rotate-45 translate-x-8 -translate-y-8" />
-          <p className="text-[10px] text-[#1E3A8A]/40 uppercase font-black tracking-[0.2em] mb-2">Municipal Ledger Entry</p>
-          <p className="text-4xl font-mono font-black tracking-widest text-[#1E3A8A]">{submittedTicketId}</p>
-          <div className="mt-4 pt-4 border-t border-[#1E3A8A]/10 flex justify-between text-[10px] uppercase font-bold text-[#1E3A8A]/40">
-            <span>{department}</span>
-            <span>{new Date().toLocaleDateString()}</span>
-          </div>
-        </div>
-        <button
-          onClick={onSubmit}
-          className="mt-6 px-6 py-3 w-full bg-[#1E3A8A] text-[#FDF6E3] font-black uppercase tracking-widest rounded-xl hover:bg-[#1E3A8A]/90 transition-all shadow-xl shadow-[#1E3A8A]/20"
-        >
-          Return to Dashboard
-        </button>
-      </div>
-    );
-  }
-
-  const deptIcons: Record<string, any> = {
-    PWD: <Construction size={24} />,
-    Electricity: <Zap size={24} />,
-    Water: <Droplets size={24} />
-  };
+function SpoolIcon({ icon: Icon, isActive, shape, color }: { icon: any; isActive: boolean; shape: string; color: string }) {
 
   return (
-    <form onSubmit={handleFormSubmit} className="flex flex-col space-y-6 w-full">
-      <div className="flex items-center justify-between bg-white/40 backdrop-blur-sm border-2 border-[#1E3A8A]/10 rounded-2xl p-4 transition-all overflow-hidden relative shadow-sm">
-        {isGhostMode && <div className="absolute inset-0 bg-[#1E3A8A] z-0" />}
-        <div className={`relative z-10 flex items-center space-x-3 transition-colors ${isGhostMode ? 'text-[#FDF6E3]' : 'text-[#1E3A8A]'}`}>
-          <div className={`p-2 rounded-xl flex items-center justify-center ${isGhostMode ? 'bg-[#FDF6E3]/10' : 'bg-[#1E3A8A]/5'}`}>
-            <Ghost size={24} className={isGhostMode ? 'animate-pulse' : ''} />
-          </div>
-          <div>
-            <h3 className="font-black uppercase tracking-widest text-sm">Ghost Mode</h3>
-            <p className={`text-[10px] font-bold ${isGhostMode ? 'text-[#FDF6E3]/70' : 'text-[#1E3A8A]/50'}`}>Report anonymously without linking your profile</p>
-          </div>
+    <div className="relative flex items-center justify-center group">
+      {/* Soft Premium Glow */}
+      <motion.div 
+        animate={{ 
+          scale: isActive ? [1, 1.3, 1] : 1,
+          opacity: isActive ? 0.5 : 0.15
+        }}
+        transition={{ repeat: Infinity, duration: 5, ease: "easeInOut" }}
+        className="absolute inset-0 rounded-full blur-[60px]"
+        style={{ backgroundColor: color }}
+      />
+      
+      {/* Physical Button / Spool Base */}
+      <motion.div 
+        className={`relative w-32 h-32 flex items-center justify-center transition-all duration-700 button-custom ${
+          isActive ? "scale-115 drop-shadow-[0_20px_50px_rgba(0,0,0,0.1)]" : "group-hover:scale-105 drop-shadow-[0_10px_30px_rgba(0,0,0,0.05)]"
+        }`}
+      >
+        {/* Glossy Overlay */}
+        <div className="absolute inset-4 rounded-full bg-gradient-to-br from-white/40 to-transparent opacity-50 pointer-events-none" />
+        
+        {/* The Hub Icon - Floating in the center of the button */}
+        <div className="z-10 bg-white/60 backdrop-blur-xl p-5 rounded-full shadow-[inset_0_2px_8px_rgba(255,255,255,1),0_8px_20px_rgba(0,0,0,0.08)] border border-white/80 transition-transform duration-500 group-hover:rotate-6">
+          <Icon 
+            size={36} 
+            className={`transition-colors duration-500 ${isActive ? "text-[#4a3e3e]" : "text-[#4a3e3e]/70 group-hover:text-[#4a3e3e]"}`} 
+            strokeWidth={1.5}
+          />
         </div>
-        <button
-          type="button"
-          onClick={() => setIsGhostMode(!isGhostMode)}
-          className={`relative z-10 w-12 h-6 rounded-full transition-colors flex items-center px-1 flex-shrink-0 ${isGhostMode ? 'bg-green-500' : 'bg-[#1E3A8A]/20'}`}
-        >
-          <div className={`w-4 h-4 rounded-full bg-white shadow-md transform transition-transform ${isGhostMode ? 'translate-x-6' : 'translate-x-0'}`} />
-        </button>
-      </div>
 
-      <div className="flex flex-col space-y-3">
-        <label className="text-[10px] font-black text-[#1E3A8A]/40 uppercase tracking-widest ml-1">Select Department</label>
-        <div className="grid grid-cols-3 gap-3">
-          {Object.keys(ISSUE_CATEGORIES).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => {
-                setDepartment(key);
-                setIssueType("");
-              }}
-              className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-300 ${department === key
-                  ? "bg-[#1E3A8A] border-[#1E3A8A] text-[#FDF6E3] shadow-lg scale-105"
-                  : "bg-white/40 border-[#1E3A8A]/10 text-[#1E3A8A] hover:bg-white hover:border-[#1E3A8A]/30"
-                }`}
-            >
-              {deptIcons[key]}
-              <span className="text-[10px] font-black mt-2 uppercase tracking-tight">{key}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <AnimatePresence mode="wait">
-        {department && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-            <div className="flex flex-col space-y-3">
-              <label className="text-[10px] font-black text-[#1E3A8A]/40 uppercase tracking-widest ml-1">What is the problem?</label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="w-full bg-white/50 backdrop-blur-md border-2 border-[#1E3A8A]/20 rounded-2xl px-5 py-4 flex items-center justify-between text-[#1E3A8A] transition-all hover:bg-white/80 active:scale-[0.99] shadow-inner"
-                >
-                  <span className="font-black text-sm uppercase tracking-tight">{issueType || "Choose Category..."}</span>
-                  {isDropdownOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                </button>
-                <AnimatePresence>
-                  {isDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                      className="absolute top-full left-0 right-0 mt-3 bg-white/90 backdrop-blur-xl border-4 border-white shadow-[0_20px_60px_rgba(30,58,138,0.25)] rounded-[2rem] p-3 z-50 overflow-hidden"
-                    >
-                      <div className="flex flex-col space-y-2">
-                        {ISSUE_CATEGORIES[department].map((issue) => (
-                          <motion.button
-                            key={issue}
-                            whileHover={{ x: 5, backgroundColor: "rgba(30,58,138,0.05)" }}
-                            whileTap={{ scale: 0.98 }}
-                            type="button"
-                            onClick={() => {
-                              setIssueType(issue);
-                              setIsDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-5 py-4 rounded-2xl border-2 transition-all flex items-center justify-between ${issueType === issue
-                                ? "bg-[#1E3A8A] border-[#1E3A8A] text-[#FDF6E3] shadow-md"
-                                : "bg-transparent border-transparent text-[#1E3A8A] font-bold"
-                              }`}
-                          >
-                            <span className="text-sm uppercase tracking-tight font-black">{issue}</span>
-                            {issueType === issue && <CheckCircle2 size={16} />}
-                          </motion.button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-
-            <div className="flex flex-col space-y-2">
-              <label className="text-[10px] font-black text-[#1E3A8A]/40 uppercase tracking-widest ml-1">Visual Evidence</label>
-              <div className="relative">
-                <input
-                  type="file"
-                  accept="image/*"
-                  required
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                />
-                <div className="bg-white/40 backdrop-blur-sm border-2 border-dashed border-[#1E3A8A]/20 rounded-xl px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm font-bold text-[#1E3A8A]/60 truncate mr-2">
-                    {file ? file.name : "Attach Photo (Required)"}
-                  </span>
-                  <Camera size={18} className="text-[#1E3A8A]/40" />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col space-y-2">
-              <label className="text-[10px] font-black text-[#1E3A8A]/40 uppercase tracking-widest ml-1">Details</label>
-              <textarea
-                required
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="w-full bg-white/40 backdrop-blur-sm border-2 border-[#1E3A8A]/10 rounded-xl px-4 py-3 text-sm font-bold text-[#1E3A8A] outline-none focus:border-[#1E3A8A]/40 transition-colors placeholder:text-[#1E3A8A]/20"
-                placeholder="Give us a brief description..."
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || !issueType}
-              className="w-full bg-[#1E3A8A] text-[#FDF6E3] font-black uppercase tracking-[0.2em] py-4 rounded-2xl shadow-xl shadow-[#1E3A8A]/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center space-x-2"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="animate-spin" size={20} />
-                  <span>TRANSMITTING...</span>
-                </>
-              ) : (
-                <span>SUBMIT REPORT</span>
-              )}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </form>
+        {/* Decorative Stitching - More detailed */}
+        <div className={`absolute inset-0 border-2 border-dotted rounded-full opacity-30 ${
+          isActive ? "border-[#4a3e3e] scale-110" : "border-[#4a3e3e]/30 scale-100"
+        } transition-all duration-1000`} style={{ borderRadius: '50%' }} />
+      </motion.div>
+    </div>
   );
 }
 
-function TicketTrackingView() {
-  const [tickets, setTickets] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+function ThreadLines() {
+  const [winSize, setWinSize] = useState({ w: 1000, h: 1000 });
 
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem('citysync_tickets') || '[]');
-    const grouped = Object.values(stored.reduce((acc: any, t: any) => {
-      if (!acc[t.shortId]) acc[t.shortId] = { ...t, count: 1 };
-      else acc[t.shortId].count += 1;
-      return acc;
-    }, {}));
-    setTickets(grouped as any[]);
-    setLoading(false);
+    const handleResize = () => setWinSize({ w: window.innerWidth, h: window.innerHeight });
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  if (loading) return <div className="p-8 text-center text-black/80"><p className="animate-pulse">Loading tracking data...</p></div>;
-
-  if (tickets.length === 0) {
-    return (
-      <div className="p-8 flex flex-col items-center justify-center text-center opacity-75">
-        <MapPin size={48} className="mb-4 text-red-500/50" />
-        <p className="text-black/80 font-medium">You have not submitted any reports yet.</p>
-        <span className="text-sm opacity-75 inline-block mt-2">Reports you submit on this device will track here automatically.</span>
-      </div>
-    );
-  }
-
-  const getProgressIndex = (status: string) => {
-    switch (status) {
-      case 'in_progress': return 1;
-      case 'resolved': return 2;
-      case 'rejected': return -1;
-      default: return 0;
-    }
-  };
-
-  const steps = ["Registered", "In Progress", "Resolved"];
+  const paths = [
+    "M 30 25 C 40 15, 55 55, 65 45",
+    "M 65 45 C 55 65, 35 50, 22 70",
+    "M 22 70 C 40 90, 60 80, 72 74",
+    "M 72 74 C 90 60, 85 40, 82 20",
+    "M 82 20 C 60 10, 40 40, 30 25"
+  ];
 
   return (
-    <div className="flex flex-col space-y-4 max-h-[60vh] overflow-y-auto pr-2 w-full">
-      {tickets.slice().reverse().map(ticket => {
-        const currentStep = getProgressIndex(ticket.status || 'open');
-        return (
-          <div key={ticket.id} className="bg-white/80 border border-gray-200 rounded-lg p-5 w-full">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h4 className="font-bold text-red-500 text-lg uppercase tracking-wider flex items-center">
-                  {ticket.shortId}
-                  {ticket.count > 1 && (
-                    <span className="text-xs border border-red-500/50 bg-red-500/10 rounded-md px-1.5 py-0.5 ml-2 text-red-400">
-                      x{ticket.count}
-                    </span>
-                  )}
-                </h4>
-                <p className="text-sm text-black/70">{ticket.category}</p>
-              </div>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide
-                ${ticket.status === 'resolved' ? 'bg-green-500/20 text-green-500' :
-                  ticket.status === 'in_progress' ? 'bg-yellow-500/20 text-yellow-500' :
-                    ticket.status === 'rejected' ? 'bg-red-900/40 text-red-400' :
-                      'bg-blue-500/20 text-blue-500'}
-              `}>
-                {(ticket.status || 'open').replace('_', ' ')}
-              </span>
-            </div>
+    <svg 
+      viewBox="0 0 100 100" 
+      preserveAspectRatio="none"
+      className="absolute inset-0 w-full h-full pointer-events-none z-10 overflow-visible"
+    >
+      <defs>
+        <filter id="stitchShadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0.1" dy="0.1" stdDeviation="0.05" floodColor="rgba(0,0,0,0.3)" />
+        </filter>
+        <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="0.5" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+      </defs>
+      
+      {/* Background "Weave" Shadow for Threads */}
+      {paths.map((path, i) => (
+        <motion.path 
+          key={`shadow-${i}`}
+          d={path} 
+          stroke="rgba(74,62,62,0.03)" strokeWidth="0.5" fill="transparent"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 4, delay: i * 0.5, ease: "easeInOut" }}
+        />
+      ))}
 
-            {ticket.status !== 'rejected' && (
-              <div className="relative mt-2 mb-4 px-2">
-                <div className="absolute top-3 left-3 right-3 h-1 bg-gray-200 z-0 rounded-full" />
-                <div
-                  className="absolute top-3 left-3 h-1 bg-green-500 z-0 rounded-full transition-all duration-500"
-                  style={{ width: `calc(${(currentStep / (steps.length - 1)) * 100}%)` }}
-                />
-                <div className="relative z-10 flex justify-between">
-                  {steps.map((label, idx) => {
-                    const isCompleted = idx <= currentStep;
-                    const isCurrent = idx === currentStep;
-                    return (
-                      <div key={label} className="flex flex-col items-center w-10">
-                        <div className={`w-6 h-6 rounded-full border-4 transition-colors duration-500 bg-white
-                          ${isCompleted ? 'border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'border-gray-200'}
-                          ${isCurrent && idx !== steps.length - 1 ? 'animate-pulse bg-green-500' : ''}
-                          ${isCompleted && !isCurrent ? 'bg-green-500' : ''}
-                        `} />
-                        <span className={`text-[10px] uppercase tracking-wider mt-2 font-bold whitespace-nowrap
-                          ${isCompleted ? 'text-green-500' : 'text-gray-400'}`}>
-                          {label}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+      {/* Main Flowing Stitched Threads (Eleanore Style Backstitch) */}
+      {paths.map((path, i) => (
+        <React.Fragment key={i}>
+          {/* Main Charcoal Thread */}
+          <motion.path 
+            d={path} 
+            stroke="#1a1a1a" 
+            strokeWidth="0.25" 
+            fill="transparent" 
+            strokeDasharray="0.6, 0.2"
+            strokeLinecap="round"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 5, delay: i * 0.5, ease: "easeInOut" }}
+          />
+
+          {/* Overlapping Backstitch Detail */}
+          <motion.path 
+            d={path} 
+            stroke="#333333" 
+            strokeWidth="0.2" 
+            fill="transparent" 
+            strokeDasharray="0.6, 0.2"
+            strokeDashoffset="0.3"
+            strokeLinecap="round"
+            className="opacity-60"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 5, delay: i * 0.5, ease: "easeInOut" }}
+          />
+          
+          {/* Subtle Thread Volume */}
+          <motion.path 
+            d={path} 
+            stroke="rgba(0,0,0,0.1)" 
+            strokeWidth="0.4" 
+            fill="transparent" 
+            filter="url(#softGlow)"
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: 1 }}
+            transition={{ duration: 5, delay: i * 0.5, ease: "easeInOut" }}
+          />
+
+          {/* Flowing Glimmer (The "Needle" path) */}
+          <motion.circle
+            r="0.15"
+            fill="#d4af37"
+            filter="url(#softGlow)"
+            initial={{ offsetDistance: "0%", opacity: 0 }}
+            animate={{ 
+              offsetDistance: "100%", 
+              opacity: [0, 1, 0],
+              scale: [1, 2, 1]
+            }}
+            transition={{ 
+              duration: 6, 
+              repeat: Infinity, 
+              delay: i * 1.2,
+              ease: "easeInOut"
+            }}
+            style={{ offsetPath: `path("${path}")` }}
+          />
+        </React.Fragment>
+      ))}
+
+      {/* Reinforcement "Cross-Stitch" at Connection Points */}
+      {HUB_POINTS.map((point, i) => (
+        <g key={`stitch-${i}`} transform={`translate(${parseFloat(point.left)}, ${parseFloat(point.top)})`}>
+          <motion.path 
+            d="M -2 -2 L 2 2 M 2 -2 L -2 2" 
+            stroke="#9e5a4d" 
+            strokeWidth="0.3" 
+            strokeLinecap="round"
+            className="opacity-40"
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 1.5 + i * 0.2 }}
+          />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+// --- View Stubs ---
+
+function VolunteerStub() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        {[
+          { label: "Active Threads", count: "124", color: "text-teal-400" },
+          { label: "Open Callings", count: "12", color: "text-[#D4AF37]" },
+        ].map(s => (
+          <div key={s.label} className="bg-white/60 border border-[#4a3e3e]/5 p-5 rounded-[1.5rem] backdrop-blur-md shadow-sm">
+            <p className="text-[9px] uppercase font-black text-[#4a3e3e]/40 tracking-[0.2em]">{s.label}</p>
+            <p className={`text-2xl font-black ${s.color}`}>{s.count}</p>
           </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function AuditView() {
-  return (
-    <div className="p-8 flex flex-col items-center justify-center text-center space-y-4">
-      <div className="w-16 h-16 rounded-full bg-[#1E3A8A]/5 flex items-center justify-center border border-[#1E3A8A]/10">
-        <ShieldCheck size={32} className="text-[#1E3A8A]/40" />
+        ))}
       </div>
-      <div>
-        <h4 className="font-black text-[#1E3A8A] text-xl uppercase tracking-tighter">Quiet Sector</h4>
-        <p className="text-[#1E3A8A]/60 font-medium text-sm">No nearby issues to audit right now.</p>
-      </div>
-    </div>
-  );
-}
-
-function ProfileView() {
-  const [profile] = useState({
-    name: "John Doe",
-    age: 28,
-    avatarUrl: "https://i.pravatar.cc/150?img=11"
-  });
-
-  return (
-    <div className="flex flex-col items-center justify-center space-y-4 px-4 pb-4 w-full">
-      <div className="relative">
-        <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-[#1E3A8A] shadow-xl">
-          <img src={profile.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
-        </div>
-      </div>
-      <div className="text-center w-full mt-2">
-        <h3 className="text-2xl font-bold text-[#1E3A8A] tracking-tight">{profile.name}</h3>
-        <p className="text-[#1E3A8A]/70 font-semibold tracking-wide">Age: {profile.age}</p>
-      </div>
-      <div className="w-full mt-6 space-y-3">
-        <div className="bg-white/50 border border-[#1E3A8A]/20 rounded-lg p-3 flex justify-between items-center shadow-inner">
-          <span className="font-semibold text-[#1E3A8A]/80">CitySync Trust Score</span>
-          <span className="font-extrabold text-green-600 bg-green-500/10 px-3 py-1 rounded-md">Excellent</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ChatAssistant() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<any[]>([
-    {
-      id: 1,
-      type: 'bot',
-      text: "Hello! I'm your CitySync Assistant. How can I help you improve our city today?",
-      options: [
-        { label: "📍 Report an Issue", action: "start_report" },
-        { label: "🔍 Track my Ticket", action: "track" },
-        { label: "💡 Explain Features", action: "features" }
-      ]
-    }
-  ]);
-  const [input, setInput] = useState("");
-
-  const addMessage = (msg: any) => {
-    setMessages(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), ...msg }]);
-  };
-
-  const handleSendMessage = (text: string) => {
-    if (!text.trim()) return;
-    addMessage({ type: 'user', text });
-    setInput("");
-    setTimeout(() => {
-      addMessage({ type: 'bot', text: "I'm currently running in demo mode without the backend API connection!" });
-    }, 500);
-  };
-
-  return (
-    <div className="fixed bottom-6 right-6 z-[2000] flex flex-col items-end">
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="mb-4 w-96 h-[32rem] bg-[#FDF6E3] rounded-3xl border-4 border-[#1E40AF] shadow-2xl flex flex-col overflow-hidden"
-          >
-            <div className="bg-[#1E40AF] p-4 flex justify-between items-center">
-              <div className="flex items-center space-x-2 text-white">
-                <Bot size={24} />
-                <span className="font-black tracking-tighter text-lg">CitySync AI</span>
-              </div>
-              <button onClick={() => setIsOpen(false)} className="text-white hover:rotate-90 transition-transform">
-                <X size={24} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white/50">
-              {messages.map((m) => (
-                <div key={m.id} className={`flex ${m.type === 'bot' ? 'justify-start' : 'justify-end'}`}>
-                  <div className={`max-w-[80%] p-3 rounded-2xl shadow-sm ${m.type === 'bot'
-                    ? 'bg-[#1E40AF] text-white rounded-tl-none'
-                    : 'bg-white border-2 border-[#1E40AF]/10 text-[#1E40AF] rounded-tr-none'
-                    }`}>
-                    <p className="text-sm font-bold leading-tight">{m.text}</p>
-                    {m.options && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {m.options.map((opt: any) => (
-                          <button
-                            key={opt.action}
-                            className="bg-white text-[#1E40AF] text-[10px] font-black uppercase px-3 py-1.5 rounded-full shadow-sm"
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="p-4 bg-white border-t border-[#1E40AF]/10 flex space-x-2 items-center">
-              <input
-                type="text"
-                placeholder="Ask or report something..."
-                className="flex-1 bg-transparent text-sm border-none focus:ring-0 placeholder:text-gray-300 font-bold outline-none"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(input)}
-              />
-              <button onClick={() => handleSendMessage(input)} className="text-[#1E40AF]">
-                <Send size={20} />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-16 h-16 bg-[#1E40AF] text-[#FDF6E3] rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all group"
-      >
-        <MessageSquare className="group-hover:rotate-12 transition-transform" size={28} />
+      <button className="w-full py-5 bg-[#4a3e3e] text-white font-black uppercase tracking-[0.2em] rounded-[2rem] hover:bg-[#4a3e3e]/90 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-2xl shadow-[#4a3e3e]/20">
+        Recruit New Volunteers
       </button>
     </div>
   );
 }
 
-export default function CivilianMapDashboard() {
-  const [activeSection, setActiveSection] = useState<Section | null>(null);
+function ProjectStub() {
+  return (
+    <div className="space-y-4">
+      {["Clean Water Initiative", "Community Schooling", "Livelihood Training"].map((p, i) => (
+        <motion.div 
+          key={p} 
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: i * 0.1 }}
+          className="bg-white/60 border border-[#4a3e3e]/5 p-6 rounded-[2rem] flex items-center justify-between group hover:border-[#4a3e3e]/20 transition-all cursor-pointer backdrop-blur-sm shadow-sm"
+        >
+          <div className="flex items-center space-x-3">
+            <div className="w-2 h-2 rounded-full bg-[#4a3e3e]/20 shadow-inner" />
+            <span className="font-bold text-base text-[#4a3e3e]">{p}</span>
+          </div>
+          <ChevronRight size={20} className="text-[#4a3e3e]/20 group-hover:text-[#4a3e3e] group-hover:translate-x-1 transition-all" />
+        </motion.div>
+      ))}
+    </div>
+  );
+}
 
-  const handlePinClick = (section: Section) => {
-    setActiveSection((prev) => (prev === section ? null : section));
-  };
+// --- Survey Loom Components ---
+
+function SurveyLoom() {
+  const [view, setView] = useState<"dashboard" | "builder">("dashboard");
+  const [questions, setQuestions] = useState([{ id: 1, type: "text", text: "" }]);
+
+  if (view === "builder") {
+    return (
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="flex justify-between items-center border-b border-[#4a3e3e]/10 pb-6">
+          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Draft New Survey</h3>
+          <button 
+            onClick={() => setView("dashboard")}
+            className="text-sm font-bold text-[#4a3e3e]/40 hover:text-[#4a3e3e] transition-colors"
+          >
+            Back to Loom
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          <div className="bg-white/80 p-6 rounded-[2rem] border-2 border-dashed border-[#4a3e3e]/10">
+            <input 
+              type="text" 
+              placeholder="Survey Title" 
+              className="w-full text-2xl font-black bg-transparent border-none focus:ring-0 placeholder-[#4a3e3e]/20"
+            />
+            <input 
+              type="text" 
+              placeholder="Add a description..." 
+              className="w-full text-lg mt-2 bg-transparent border-none focus:ring-0 placeholder-[#4a3e3e]/20"
+            />
+          </div>
+
+          {questions.map((q, idx) => (
+            <motion.div 
+              key={q.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-[#4a3e3e]/5 space-y-4"
+            >
+              <div className="flex gap-4">
+                <input 
+                  type="text" 
+                  value={q.text}
+                  onChange={(e) => {
+                    const newQs = [...questions];
+                    newQs[idx].text = e.target.value;
+                    setQuestions(newQs);
+                  }}
+                  placeholder={`Question ${idx + 1}`} 
+                  className="flex-1 text-xl font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+                />
+                <select className="bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none font-bold text-[#4a3e3e]/60 focus:ring-2 focus:ring-[#4a3e3e]/10">
+                  <option>Short Answer</option>
+                  <option>Multiple Choice</option>
+                  <option>Checkboxes</option>
+                </select>
+              </div>
+            </motion.div>
+          ))}
+
+          <button 
+            onClick={() => setQuestions([...questions, { id: Date.now(), type: "text", text: "" }])}
+            className="w-full py-6 border-2 border-dashed border-[#4a3e3e]/20 rounded-[2.5rem] text-[#4a3e3e]/40 font-black uppercase tracking-widest hover:bg-[#4a3e3e]/5 transition-all"
+          >
+            + Add Question Thread
+          </button>
+
+          <button className="w-full py-6 bg-[#22c55e] text-white font-black uppercase tracking-[0.3em] rounded-[2.5rem] shadow-xl shadow-green-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+            Publish to the Loom
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 w-full h-full p-0 m-0 overflow-hidden bg-white">
-      <div
-        className="absolute inset-0 bg-cover bg-center bg-no-repeat z-0"
-        style={{ backgroundImage: "url('/user bg.png')", opacity: 1 }}
-      />
-      <div className="absolute inset-0 bg-[#FDF6E3]/20 backdrop-blur-[2px] pointer-events-none z-10" />
-
-      <div className="absolute top-4 left-4 z-20">
-        <img src="/logo.png" alt="CitySync Logo" className="h-28 w-auto drop-shadow-lg" />
+    <div className="space-y-10">
+      {/* Stats Section */}
+      <div className="grid grid-cols-3 gap-6">
+        {[
+          { label: "Surveys Created", val: "42", color: "text-amber-500" },
+          { label: "Total Responses", val: "1.2k", color: "text-emerald-500" },
+          { label: "Active Threads", val: "8", color: "text-sky-500" },
+        ].map((stat, i) => (
+          <div key={i} className="bg-white/40 backdrop-blur-md p-5 rounded-[1.5rem] border border-[#4a3e3e]/5 shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#4a3e3e]/40 mb-1">{stat.label}</p>
+            <p className={`text-xl font-black ${stat.color}`}>{stat.val}</p>
+          </div>
+        ))}
       </div>
 
-      <div className="relative w-full h-full z-30">
-        {PINS.map((pin, index) => {
-          const isActive = activeSection === pin.section;
-          const Icon = PIN_ICONS[pin.section];
+      {/* Main Actions */}
+      <div className="bg-white/60 backdrop-blur-xl p-8 rounded-[3rem] border border-[#4a3e3e]/5 shadow-inner">
+        <div className="flex justify-between items-end mb-8">
+          <div>
+            <h3 className="text-2xl font-black text-[#4a3e3e] uppercase tracking-tighter">Active Surveys</h3>
+            <p className="text-[#4a3e3e]/40 font-bold text-sm uppercase tracking-widest mt-1">Ongoing community data threads</p>
+          </div>
+          <button 
+            onClick={() => setView("builder")}
+            className="px-10 py-5 bg-[#4a3e3e] text-white font-black uppercase tracking-[0.2em] rounded-3xl hover:shadow-2xl hover:-translate-y-1 transition-all"
+          >
+            Publish New Survey
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {[
+            { title: "Local Health Assessment", responses: 234, status: "Active" },
+            { title: "Farmer Cooperative Needs", responses: 89, status: "Active" },
+            { title: "Education Access Poll", responses: 567, status: "Urgent" },
+          ].map((s, i) => (
+            <div key={i} className="bg-white p-6 rounded-[2rem] flex items-center justify-between group cursor-pointer hover:shadow-md transition-all border border-transparent hover:border-[#4a3e3e]/10">
+              <div className="flex items-center space-x-6">
+                <div className={`w-3 h-3 rounded-full ${s.status === 'Urgent' ? 'bg-red-400' : 'bg-green-400'} shadow-lg`} />
+                <div>
+                  <h4 className="font-black text-[#4a3e3e] text-lg">{s.title}</h4>
+                  <p className="text-xs font-bold text-[#4a3e3e]/30 uppercase tracking-widest">{s.responses} Responses Collected</p>
+                </div>
+              </div>
+              <ChevronRight className="text-[#4a3e3e]/20 group-hover:text-[#4a3e3e] transition-all" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Main Dashboard ---
+
+export default function WeaveHubDashboard() {
+  const [activeSection, setActiveSection] = useState<Section | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) return <div className="fixed inset-0 bg-[#fdfaf8]" />;
+
+  return (
+    <div className="fixed inset-0 w-full h-full bg-[#fdfaf8] overflow-hidden">
+      {/* Premium Fabric Texture */}
+      <div className="absolute inset-0 z-0">
+        {/* Woven Linen Base Texture (Yellow Gingham) */}
+        <div className="absolute inset-0 fabric-texture opacity-60" />
+        
+        {/* Refined Plaid Pattern */}
+        <div 
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage: `
+              linear-gradient(90deg, rgba(74,62,62,0.08) 1px, transparent 1px),
+              linear-gradient(rgba(74,62,62,0.08) 1px, transparent 1px)
+            `,
+            backgroundSize: '80px 80px'
+          }}
+        />
+        
+        {/* Noise / Grain Filter for Tactile Feel */}
+        <div 
+          className="absolute inset-0 opacity-[0.03] mix-blend-multiply"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+          }}
+        />
+
+        {/* Soft Silky Drape Effect */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[#f4dada]/20 via-white/30 to-[#d8e6e0]/20 mix-blend-overlay animate-[pulse_15s_infinite_alternate]" />
+        
+        {/* Tactile Texture Overlay */}
+        <div 
+          className="absolute inset-0 opacity-[0.05] mix-blend-multiply"
+          style={{
+            backgroundImage: `url("https://www.transparenttextures.com/patterns/pinstriped-suit.png")`,
+          }}
+        />
+        
+        {/* Vignette for depth */}
+        <div className="absolute inset-0 shadow-[inset_0_0_200px_rgba(74,62,62,0.08)] pointer-events-none" />
+      </div>
+
+      {/* Brand Header */}
+      <div className="absolute top-8 left-12 z-50">
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          whileHover={{ scale: 1.02 }}
+          className="cursor-pointer"
+        >
+          <img 
+            src="/weave_logo.png.png" 
+            alt="Weave Logo" 
+            className="h-28 w-auto drop-shadow-sm select-none"
+          />
+        </motion.div>
+      </div>
+
+      {/* Flowy Thread Network */}
+      <ThreadLines />
+
+      {/* Navigation Buttons (Spools) */}
+      <div className="relative w-full h-full z-20">
+        {HUB_POINTS.map((point, index) => {
+          const isActive = activeSection === point.section;
           return (
-            <div key={pin.section} style={{ position: "absolute", top: pin.top, left: pin.left }} className="-translate-x-1/2 -translate-y-1/2">
+            <div 
+              key={point.section} 
+              style={{ position: "absolute", top: point.top, left: point.left }} 
+              className="-translate-x-1/2 -translate-y-1/2"
+            >
               <motion.div
-                className="cursor-pointer flex flex-col items-center group"
-                onClick={() => handlePinClick(pin.section)}
-                whileHover={{ scale: 1.15, y: -10 }}
-                initial={{ y: -50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ type: "spring", stiffness: 300, damping: 20, delay: index * 0.1 }}
+                className="cursor-pointer flex flex-col items-center"
+                onClick={() => setActiveSection(isActive ? null : point.section)}
+                whileHover={{ scale: 1.05 }}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: index * 0.1, type: "spring", stiffness: 200, damping: 20 }}
               >
-                <motion.div animate={{ rotate: isActive ? 180 : 0, scale: isActive ? 1.2 : 1, y: isActive ? 10 : 0 }} className="relative flex items-center justify-center">
-                  <MapPin size={110} className="text-[#1E3A8A] drop-shadow-[0_12px_15px_rgba(30,58,138,0.5)]" fill="#1E3A8A" strokeWidth={1.5} stroke="#FDF6E3" />
-                  <div className={`absolute top-[20%] transition-transform duration-300 ${isActive ? 'rotate-180' : ''}`}>
-                    <div className="bg-[#FDF6E3] rounded-full p-2.5 shadow-inner border border-[#1E3A8A]/20">
-                      <Icon size={28} className="text-[#1E3A8A]" />
-                    </div>
-                  </div>
-                </motion.div>
-                <div className="mt-2 whitespace-nowrap bg-[#FDF6E3] text-[#1E3A8A] font-extrabold px-3 py-1.5 rounded-md border-2 border-[#1E3A8A] shadow-xl pointer-events-none tracking-tight">
-                  {pin.section}
+                <SpoolIcon icon={point.icon} isActive={isActive} shape={point.shape} color={point.color} />
+                <div className="mt-8">
+                  <motion.div 
+                    animate={{ 
+                      borderColor: isActive ? point.color : "rgba(74,62,62,0.05)",
+                      backgroundColor: isActive ? "white" : "rgba(255,255,255,0.4)",
+                      y: isActive ? -8 : 0,
+                      scale: isActive ? 1.05 : 1
+                    }}
+                    className="backdrop-blur-3xl px-10 py-4 rounded-3xl border shadow-[0_10px_40px_rgba(0,0,0,0.03)] transition-all"
+                  >
+                    <span className="text-[13px] font-black text-[#4a3e3e] uppercase tracking-[0.5em]">{point.section}</span>
+                  </motion.div>
                 </div>
               </motion.div>
             </div>
@@ -588,60 +534,90 @@ export default function CivilianMapDashboard() {
         })}
       </div>
 
+      {/* Feature Implementation Modals */}
       <AnimatePresence>
         {activeSection && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-[#1E3A8A]/20 backdrop-blur-sm p-4"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-[#4a3e3e]/30 backdrop-blur-[10px] p-6"
             onClick={() => setActiveSection(null)}
           >
             <motion.div
-              initial={{ scale: 0.8, opacity: 0, y: 20 }}
+              initial={{ scale: 0.9, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.8, opacity: 0, y: 20 }}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className={`w-full bg-[#FDF6E3] border-4 border-[#1E3A8A] rounded-2xl shadow-[0_0_50px_rgba(30,58,138,0.3)] relative overflow-hidden ${activeSection === 'Heat Map' ? 'max-w-4xl' : 'max-w-lg'}`}
+              exit={{ scale: 0.9, opacity: 0, y: 50 }}
+              className="w-full max-w-3xl bg-[#fcf8f6] border border-[#4a3e3e]/5 rounded-[3rem] overflow-hidden shadow-[0_50px_100px_rgba(74,62,62,0.1)] relative"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="bg-[#1E3A8A] border-b-2 border-[#1E3A8A] p-6 flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-[#FDF6E3] tracking-tight">{activeSection}</h2>
-                <button className="text-[#FDF6E3]/70 hover:text-[#FDF6E3] hover:bg-white/10 p-2 rounded-full transition-colors" onClick={() => setActiveSection(null)}>
-                  <X size={24} strokeWidth={2.5} />
-                </button>
-              </div>
-              <div className={`p-6 flex flex-col justify-center space-y-4 ${activeSection === 'Heat Map' ? 'min-h-[32rem]' : 'min-h-[16rem]'}`}>
-                {activeSection === "Submit a Report" ? (
-                  <ReportForm onSubmit={() => setActiveSection(null)} />
-                ) : activeSection === "Ticket Status" ? (
-                  <TicketTrackingView />
-                ) : activeSection === "Audit" ? (
-                  <AuditView />
-                ) : activeSection === "Profile" ? (
-                  <ProfileView />
-                ) : activeSection === "Heat Map" ? (
-                  <div className="flex flex-col items-center justify-center text-center space-y-4">
-                    <Flame size={48} className="text-[#1E3A8A] opacity-50 mb-4" />
-                    <h3 className="text-2xl font-black text-[#1E3A8A]">Heatmap Module Offline</h3>
-                    <p className="text-[#1E3A8A]/80">The heatmap requires backend integrations to display real-time city data.</p>
+              {/* Modal Banner */}
+              <div className="h-1.5 bg-gradient-to-r from-[#f4dada] via-[#d8e6e0] to-[#e8d5d5]" />
+              
+              <div className="p-10">
+                <div className="flex justify-between items-start mb-10">
+                  <div>
+                    <h2 className="text-3xl font-black text-[#4a3e3e] tracking-tighter uppercase leading-none">{activeSection}</h2>
+                    <div className="h-1 w-20 bg-[#4a3e3e]/10 mt-3 rounded-full" />
+                    <p className="text-[#4a3e3e]/40 font-bold text-xs mt-3 uppercase tracking-[0.3em]">
+                      {HUB_POINTS.find(p => p.section === activeSection)?.description}
+                    </p>
                   </div>
-                ) : activeSection === "WhatsApp Bot" ? (
-                  <div className="flex flex-col items-center justify-center text-center space-y-4 py-4">
-                    <h3 className="text-2xl font-black text-[#1E3A8A]">CitySync WhatsApp Bot</h3>
-                    <p className="text-[#1E3A8A]/80 font-medium max-w-sm">Scan the QR code below to connect with our automated AI assistant on WhatsApp.</p>
-                    <div className="bg-white p-4 rounded-2xl shadow-xl border-4 border-[#1E3A8A]/20">
-                      <img src="/qr.png" alt="WhatsApp Contact QR" className="w-64 h-64 object-contain" />
+                  <button 
+                    onClick={() => setActiveSection(null)}
+                    className="p-4 rounded-2xl bg-[#4a3e3e]/5 text-[#4a3e3e] hover:bg-[#4a3e3e] hover:text-white transition-all transform hover:rotate-90 shadow-sm border border-[#4a3e3e]/10"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <div className="min-h-[300px] relative">
+                  {activeSection === "Volunteers" && <VolunteerStub />}
+                  {activeSection === "Impact Projects" && <ProjectStub />}
+                  {activeSection === "Survey Loom" && <SurveyLoom />}
+                  {activeSection === "NGO Network" && (
+                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+                      <div className="p-8 rounded-full bg-[#2DD4BF]/5 border-2 border-[#2DD4BF]/20">
+                        <Globe size={80} className="text-[#2DD4BF]/40" />
+                      </div>
+                      <p className="text-[#4a3e3e]/40 font-black uppercase tracking-[0.4em] text-sm">Inter-community fabric active</p>
                     </div>
-                  </div>
-                ) : null}
+                  )}
+                  {activeSection === "Community Fabric" && (
+                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+                      <div className="p-8 rounded-full bg-red-500/5 border-2 border-red-500/20">
+                        <Heart size={80} className="text-red-500/30" />
+                      </div>
+                      <p className="text-[#4a3e3e]/40 font-black uppercase tracking-[0.4em] text-sm">Mapping the heartbeat of change</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Bottom Decorative Stitching */}
+              <div className="flex justify-center pb-10 opacity-20">
+                <div className="flex space-x-4">
+                  {[...Array(18)].map((_, i) => (
+                    <div key={i} className="w-1 h-4 bg-[#4a3e3e] rounded-full rotate-[35deg]" />
+                  ))}
+                </div>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
-      <ChatAssistant />
+
+      {/* Floating Action Button (Needle) */}
+      <div className="fixed bottom-12 right-12 z-[2000]">
+        <motion.button
+          whileHover={{ scale: 1.1, rotate: 15 }}
+          whileTap={{ scale: 0.9 }}
+          className="w-24 h-24 rounded-[2.5rem] bg-white text-[#4a3e3e] flex items-center justify-center shadow-xl border border-[#4a3e3e]/10"
+        >
+          <MessageSquare size={40} />
+        </motion.button>
+      </div>
     </div>
   );
 }
+

@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fcf8f6;
+  --foreground: #4a3e3e;
+  --soft-mauve: #e8d5d5;
+  --soft-rose: #f4dada;
+  --soft-mint: #d8e6e0;
+  --soft-cream: #fff9f5;
+  --gold: #d4af37;
 }
 
 @theme inline {
@@ -12,15 +17,55 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+.fabric-texture {
+  background-color: #ffffff;
+  background-image: 
+    linear-gradient(90deg, rgba(254, 243, 199, 0.7) 50%, transparent 50%),
+    linear-gradient(rgba(254, 243, 199, 0.7) 50%, transparent 50%);
+  background-size: 60px 60px;
+}
+
+.button-custom {
+  background: #bef264;
+  border-radius: 50%;
+  box-shadow: 
+    inset 0 -4px 8px rgba(0,0,0,0.1),
+    inset 0 4px 8px rgba(255,255,255,0.6),
+    0 8px 16px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: 1px solid rgba(0,0,0,0.05);
+}
+
+.button-custom::before,
+.button-custom::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: rgba(0,0,0,0.15);
+  border-radius: 50%;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.button-custom::before {
+  transform: translateX(-15px);
+}
+
+.button-custom::after {
+  transform: translateX(15px);
+}
+
+.pentagon {
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+}
+
