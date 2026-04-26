@@ -4,10 +4,33 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+// Create uploads directory if it doesn't exist
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Set up Multer storage
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/')
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + path.extname(file.originalname))
+    }
+});
+const upload = multer({ storage: storage });
 
 require('dotenv').config();
 const MONGO_URI = process.env.MONGO_URI;
@@ -31,6 +54,18 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
+
+// Problem Schema
+const problemSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    location: { type: String, required: true },
+    imageUrl: { type: String, required: true },
+    reportedBy: { type: String, required: true }, // email
+    createdAt: { type: Date, default: Date.now }
+});
+
+const Problem = mongoose.model('Problem', problemSchema);
 
 // Middleware to authenticate JWT
 const authenticateToken = (req, res, next) => {
@@ -124,6 +159,32 @@ app.post('/upgrade-volunteer', authenticateToken, async (req, res) => {
         }
         
         res.status(200).json({ message: 'Successfully registered as volunteer!', user: { email: user.email, isVolunteer: user.isVolunteer }});
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Report Problem Route
+app.post('/report-problem', authenticateToken, upload.single('image'), async (req, res) => {
+    try {
+        const { title, description, location } = req.body;
+        
+        if (!req.file) {
+            return res.status(400).json({ error: 'Image is required' });
+        }
+
+        const imageUrl = `/uploads/${req.file.filename}`;
+
+        const problem = new Problem({
+            title,
+            description,
+            location,
+            imageUrl,
+            reportedBy: req.user.email
+        });
+
+        await problem.save();
+        res.status(201).json({ message: 'Problem reported successfully', problem });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

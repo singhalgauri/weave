@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 
 // For Android Emulator, use 10.0.2.2
 // For Web or iOS Simulator, use 127.0.0.1
@@ -221,6 +223,13 @@ class CivilianDashboardPage extends StatelessWidget {
                           context,
                           MaterialPageRoute(
                             builder: (context) => const ProfilePage(),
+                          ),
+                        );
+                      } else if (name == 'Report a problem') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ReportProblemPage(),
                           ),
                         );
                       } else {
@@ -678,6 +687,154 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 ),
               ),
+      ),
+    );
+  }
+}
+
+class ReportProblemPage extends StatefulWidget {
+  const ReportProblemPage({super.key});
+
+  @override
+  State<ReportProblemPage> createState() => _ReportProblemPageState();
+}
+
+class _ReportProblemPageState extends State<ReportProblemPage> {
+  final _titleController = TextEditingController();
+  final _descController = TextEditingController();
+  final _locationController = TextEditingController();
+  File? _image;
+  bool _isLoading = false;
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+      });
+    }
+  }
+
+  Future<void> _submitProblem() async {
+    if (_titleController.text.isEmpty ||
+        _descController.text.isEmpty ||
+        _locationController.text.isEmpty ||
+        _image == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill all fields and select an image')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final uri = Uri.parse('$backendBaseUrl/report-problem');
+      final request = http.MultipartRequest('POST', uri);
+      
+      request.headers['Authorization'] = 'Bearer $globalJwtToken';
+      request.fields['title'] = _titleController.text;
+      request.fields['description'] = _descController.text;
+      request.fields['location'] = _locationController.text;
+      
+      request.files.add(
+        await http.MultipartFile.fromPath('image', _image!.path),
+      );
+
+      final response = await request.send();
+      final respStr = await response.stream.bytesToString();
+
+      if (response.statusCode == 201) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Problem reported successfully!')),
+          );
+          Navigator.pop(context);
+        }
+      } else {
+        final data = jsonDecode(respStr);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['error'] ?? 'Failed to report problem')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Report a Problem')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                labelText: 'Title',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _descController,
+              decoration: const InputDecoration(
+                labelText: 'Description',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _locationController,
+              decoration: const InputDecoration(
+                labelText: 'Location',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 24),
+            _image == null
+                ? Container(
+                    height: 150,
+                    width: double.infinity,
+                    color: Colors.grey[200],
+                    child: const Center(child: Text('No image selected.')),
+                  )
+                : Image.file(_image!, height: 200, width: double.infinity, fit: BoxFit.cover),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.image),
+              label: const Text('Pick Image'),
+              onPressed: _pickImage,
+            ),
+            const SizedBox(height: 32),
+            _isLoading
+                ? const CircularProgressIndicator()
+                : SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _submitProblem,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Submit Problem', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+          ],
+        ),
       ),
     );
   }
