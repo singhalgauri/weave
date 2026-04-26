@@ -296,8 +296,90 @@ function ProjectStub() {
 // --- Survey Loom Components ---
 
 function SurveyLoom() {
-  const [view, setView] = useState<"dashboard" | "builder">("dashboard");
-  const [questions, setQuestions] = useState([{ id: 1, type: "text", text: "" }]);
+  const [view, setView] = useState<"dashboard" | "builder" | "analytics">("dashboard");
+  const [questions, setQuestions] = useState<any[]>([{ id: 1, type: "Short Answer", text: "", options: ["Option 1"] }]);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeSurveys, setActiveSurveys] = useState<any[]>([]);
+  const [selectedSurvey, setSelectedSurvey] = useState<any>(null);
+  const [surveyResponses, setSurveyResponses] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (view === "dashboard") {
+      fetch("http://127.0.0.1:5000/surveys")
+        .then(res => res.json())
+        .then(data => setActiveSurveys(data))
+        .catch(err => console.error("Error fetching surveys:", err));
+    }
+    if (view === "analytics" && selectedSurvey) {
+      fetch(`http://127.0.0.1:5000/surveys/${selectedSurvey._id}/responses`)
+        .then(res => res.json())
+        .then(data => setSurveyResponses(data))
+        .catch(err => console.error("Error fetching responses:", err));
+    }
+  }, [view, selectedSurvey]);
+
+  const handlePublish = async () => {
+    if (!title.trim() || !description.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("http://127.0.0.1:5000/surveys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description, questions })
+      });
+      if (res.ok) {
+        setView("dashboard");
+        setTitle("");
+        setDescription("");
+        setQuestions([{ id: 1, type: "text", text: "" }]);
+      }
+    } catch (err) {
+      console.error("Error publishing survey:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (view === "analytics" && selectedSurvey) {
+    return (
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="flex justify-between items-center border-b border-[#4a3e3e]/10 pb-6">
+          <div>
+            <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">{selectedSurvey.title} Analytics</h3>
+            <p className="text-[#4a3e3e]/60 font-bold mt-1">Total Responses: {surveyResponses.length}</p>
+          </div>
+          <button 
+            onClick={() => setView("dashboard")}
+            className="text-sm font-bold text-[#4a3e3e]/40 hover:text-[#4a3e3e] transition-colors"
+          >
+            Back to Loom
+          </button>
+        </div>
+        
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+          {surveyResponses.length > 0 ? (
+            surveyResponses.map((resp, i) => (
+              <div key={i} className="bg-white p-6 rounded-[2rem] border border-[#4a3e3e]/5 shadow-sm">
+                <p className="text-xs font-bold text-[#4a3e3e]/40 uppercase tracking-widest mb-2">Submitted by: {resp.userName || resp.userEmail}</p>
+                <div className="space-y-2 mt-4">
+                  {resp.responses.map((r: any, j: number) => (
+                    <div key={j} className="bg-[#fcf8f6] p-4 rounded-xl border border-[#4a3e3e]/5">
+                      <p className="text-sm font-bold text-[#4a3e3e]/60">{r.questionText}</p>
+                      <p className="text-lg font-black text-[#4a3e3e] mt-1">{r.answer}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-[#4a3e3e]/50 font-bold text-center">No responses yet.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (view === "builder") {
     return (
@@ -317,11 +399,15 @@ function SurveyLoom() {
             <input 
               type="text" 
               placeholder="Survey Title" 
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
               className="w-full text-2xl font-black bg-transparent border-none focus:ring-0 placeholder-[#4a3e3e]/20"
             />
             <input 
               type="text" 
               placeholder="Add a description..." 
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               className="w-full text-lg mt-2 bg-transparent border-none focus:ring-0 placeholder-[#4a3e3e]/20"
             />
           </div>
@@ -345,24 +431,65 @@ function SurveyLoom() {
                   placeholder={`Question ${idx + 1}`} 
                   className="flex-1 text-xl font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
                 />
-                <select className="bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none font-bold text-[#4a3e3e]/60 focus:ring-2 focus:ring-[#4a3e3e]/10">
+                <select 
+                  value={q.type || "Short Answer"}
+                  onChange={(e) => {
+                    const newQs = [...questions];
+                    newQs[idx].type = e.target.value;
+                    setQuestions(newQs);
+                  }}
+                  className="bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none font-bold text-[#4a3e3e]/60 focus:ring-2 focus:ring-[#4a3e3e]/10">
                   <option>Short Answer</option>
                   <option>Multiple Choice</option>
                   <option>Checkboxes</option>
                 </select>
               </div>
+              {(q.type === "Multiple Choice" || q.type === "Checkboxes") && (
+                <div className="pl-6 space-y-2 mt-4 border-l-2 border-[#4a3e3e]/10">
+                  {(q.options || []).map((opt: string, optIdx: number) => (
+                    <div key={optIdx} className="flex items-center gap-2">
+                      <div className={`w-4 h-4 rounded-${q.type === 'Checkboxes' ? 'md' : 'full'} border-2 border-[#4a3e3e]/20`} />
+                      <input 
+                        type="text"
+                        value={opt}
+                        onChange={(e) => {
+                          const newQs = [...questions];
+                          newQs[idx].options[optIdx] = e.target.value;
+                          setQuestions(newQs);
+                        }}
+                        className="flex-1 bg-transparent border-none focus:ring-0 text-[#4a3e3e]/80 font-bold placeholder-[#4a3e3e]/20"
+                        placeholder={`Option ${optIdx + 1}`}
+                      />
+                    </div>
+                  ))}
+                  <button 
+                    onClick={() => {
+                      const newQs = [...questions];
+                      if (!newQs[idx].options) newQs[idx].options = [];
+                      newQs[idx].options.push(`Option ${(newQs[idx].options.length || 0) + 1}`);
+                      setQuestions(newQs);
+                    }}
+                    className="text-sm font-bold text-[#4a3e3e]/40 hover:text-[#4a3e3e] mt-2 flex items-center gap-1"
+                  >
+                    + Add Option
+                  </button>
+                </div>
+              )}
             </motion.div>
           ))}
 
           <button 
-            onClick={() => setQuestions([...questions, { id: Date.now(), type: "text", text: "" }])}
+            onClick={() => setQuestions([...questions, { id: Date.now(), type: "Short Answer", text: "", options: ["Option 1"] }])}
             className="w-full py-6 border-2 border-dashed border-[#4a3e3e]/20 rounded-[2.5rem] text-[#4a3e3e]/40 font-black uppercase tracking-widest hover:bg-[#4a3e3e]/5 transition-all"
           >
             + Add Question Thread
           </button>
 
-          <button className="w-full py-6 bg-[#22c55e] text-white font-black uppercase tracking-[0.3em] rounded-[2.5rem] shadow-xl shadow-green-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
-            Publish to the Loom
+          <button 
+            onClick={handlePublish}
+            disabled={isSubmitting}
+            className="w-full py-6 bg-[#22c55e] text-white font-black uppercase tracking-[0.3em] rounded-[2.5rem] shadow-xl shadow-green-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            {isSubmitting ? "Publishing..." : "Publish to the Loom"}
           </button>
         </div>
       </div>
@@ -374,9 +501,9 @@ function SurveyLoom() {
       {/* Stats Section */}
       <div className="grid grid-cols-3 gap-6">
         {[
-          { label: "Surveys Created", val: "42", color: "text-amber-500" },
-          { label: "Total Responses", val: "1.2k", color: "text-emerald-500" },
-          { label: "Active Threads", val: "8", color: "text-sky-500" },
+          { label: "Surveys Created", val: activeSurveys.length.toString(), color: "text-amber-500" },
+          { label: "Total Responses", val: activeSurveys.reduce((acc, curr) => acc + (curr.responsesCount || 0), 0).toString(), color: "text-emerald-500" },
+          { label: "Active Threads", val: activeSurveys.length.toString(), color: "text-sky-500" },
         ].map((stat, i) => (
           <div key={i} className="bg-white/40 backdrop-blur-md p-5 rounded-[1.5rem] border border-[#4a3e3e]/5 shadow-sm">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#4a3e3e]/40 mb-1">{stat.label}</p>
@@ -401,22 +528,28 @@ function SurveyLoom() {
         </div>
 
         <div className="space-y-4">
-          {[
-            { title: "Local Health Assessment", responses: 234, status: "Active" },
-            { title: "Farmer Cooperative Needs", responses: 89, status: "Active" },
-            { title: "Education Access Poll", responses: 567, status: "Urgent" },
-          ].map((s, i) => (
-            <div key={i} className="bg-white p-6 rounded-[2rem] flex items-center justify-between group cursor-pointer hover:shadow-md transition-all border border-transparent hover:border-[#4a3e3e]/10">
-              <div className="flex items-center space-x-6">
-                <div className={`w-3 h-3 rounded-full ${s.status === 'Urgent' ? 'bg-red-400' : 'bg-green-400'} shadow-lg`} />
-                <div>
-                  <h4 className="font-black text-[#4a3e3e] text-lg">{s.title}</h4>
-                  <p className="text-xs font-bold text-[#4a3e3e]/30 uppercase tracking-widest">{s.responses} Responses Collected</p>
+          {activeSurveys.length > 0 ? (
+            activeSurveys.map((s: any, i: number) => (
+              <div 
+                key={i} 
+                onClick={() => { setSelectedSurvey(s); setView("analytics"); }}
+                className="bg-white p-6 rounded-[2rem] flex items-center justify-between group cursor-pointer hover:shadow-md transition-all border border-transparent hover:border-[#4a3e3e]/10">
+                <div className="flex items-center space-x-6">
+                  <div className={`w-3 h-3 rounded-full bg-green-400 shadow-lg`} />
+                  <div>
+                    <h4 className="font-black text-[#4a3e3e] text-lg">{s.title}</h4>
+                    <p className="text-xs font-bold text-[#4a3e3e]/30 uppercase tracking-widest">{s.description}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-4">
+                  <p className="text-sm font-black text-[#4a3e3e]/40">{s.responsesCount || 0} Responses</p>
+                  <ChevronRight className="text-[#4a3e3e]/20 group-hover:text-[#4a3e3e] transition-all" />
                 </div>
               </div>
-              <ChevronRight className="text-[#4a3e3e]/20 group-hover:text-[#4a3e3e] transition-all" />
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="text-[#4a3e3e]/50 font-bold text-center">No active surveys found.</p>
+          )}
         </div>
       </div>
     </div>

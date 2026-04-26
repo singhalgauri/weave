@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 // For Android Emulator, use 10.0.2.2
 // For Web or iOS Simulator, use 127.0.0.1
 // For Physical Devices, use your computer's local Wi-Fi IP address (e.g., 192.168.x.x)
-const String backendBaseUrl = 'http://10.90.131.179:3000';
+const String backendBaseUrl = 'http://10.90.131.179:5000';
 
 String? globalUserEmail;
 String? globalJwtToken;
@@ -120,6 +120,13 @@ class BackgroundMapPage extends StatelessWidget {
                             builder: (context) => const ProfilePage(),
                           ),
                         );
+                      } else if (name == 'Conduct a survey') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SurveysListPage(),
+                          ),
+                        );
                       } else {
                         Navigator.push(
                           context,
@@ -230,6 +237,13 @@ class CivilianDashboardPage extends StatelessWidget {
                           context,
                           MaterialPageRoute(
                             builder: (context) => const ReportProblemPage(),
+                          ),
+                        );
+                      } else if (name == 'Available surveys') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SurveysListPage(),
                           ),
                         );
                       } else {
@@ -839,3 +853,259 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
     );
   }
 }
+
+class SurveysListPage extends StatefulWidget {
+  const SurveysListPage({super.key});
+
+  @override
+  State<SurveysListPage> createState() => _SurveysListPageState();
+}
+
+class _SurveysListPageState extends State<SurveysListPage> {
+  List<dynamic> surveys = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchSurveys();
+  }
+
+  Future<void> fetchSurveys() async {
+    try {
+      final res = await http.get(Uri.parse('$backendBaseUrl/surveys'));
+      if (res.statusCode == 200) {
+        setState(() {
+          surveys = jsonDecode(res.body);
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Surveys')),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : surveys.isEmpty
+              ? const Center(child: Text('No active surveys currently.'))
+              : ListView.builder(
+                  itemCount: surveys.length,
+                  itemBuilder: (context, index) {
+                    final s = surveys[index];
+                    return Card(
+                      margin: const EdgeInsets.all(8),
+                      child: ListTile(
+                        title: Text(s['title'] ?? 'Untitled Survey'),
+                        subtitle: Text(s['description'] ?? ''),
+                        trailing: const Icon(Icons.arrow_forward_ios),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => SurveyFormPage(survey: s),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+    );
+  }
+}
+
+class SurveyFormPage extends StatefulWidget {
+  final Map<String, dynamic> survey;
+
+  const SurveyFormPage({super.key, required this.survey});
+
+  @override
+  State<SurveyFormPage> createState() => _SurveyFormPageState();
+}
+
+class _SurveyFormPageState extends State<SurveyFormPage> {
+  final Map<int, dynamic> _answers = {};
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final questions = widget.survey['questions'] as List<dynamic>? ?? [];
+    for (int i = 0; i < questions.length; i++) {
+      if (questions[i]['type'] == 'Checkboxes') {
+        _answers[i] = <String>[];
+      } else {
+        _answers[i] = '';
+      }
+    }
+  }
+
+  Future<void> _submitForm() async {
+    setState(() => _isLoading = true);
+
+    final questions = widget.survey['questions'] as List<dynamic>? ?? [];
+    List<Map<String, dynamic>> responses = [];
+
+    for (int i = 0; i < questions.length; i++) {
+      String answerString = '';
+      if (_answers[i] is List) {
+        answerString = (_answers[i] as List).join(', ');
+      } else {
+        answerString = _answers[i].toString();
+      }
+
+      responses.add({
+        'questionId': questions[i]['id'] ?? i,
+        'questionText': questions[i]['text'] ?? '',
+        'answer': answerString,
+      });
+    }
+
+    try {
+      final res = await http.post(
+        Uri.parse('$backendBaseUrl/surveys/${widget.survey['_id']}/responses'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $globalJwtToken',
+        },
+        body: jsonEncode({'responses': responses}),
+      );
+
+      final data = jsonDecode(res.body);
+      if (res.statusCode == 201) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Survey submitted successfully!')),
+          );
+          Navigator.pop(context); // Go back
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(data['error'] ?? 'Failed to submit')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final questions = widget.survey['questions'] as List<dynamic>? ?? [];
+
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.survey['title'] ?? 'Survey')),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Text(
+              widget.survey['description'] ?? '',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: ListView.builder(
+                itemCount: questions.length,
+                itemBuilder: (context, index) {
+                  final q = questions[index];
+                  final String qType = q['type'] ?? 'Short Answer';
+                  final List<dynamic> options = q['options'] ?? [];
+
+                  Widget inputWidget;
+
+                  if (qType == 'Multiple Choice') {
+                    inputWidget = Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: options.map((opt) {
+                        return RadioListTile<String>(
+                          title: Text(opt.toString()),
+                          value: opt.toString(),
+                          groupValue: _answers[index] as String,
+                          onChanged: (val) {
+                            setState(() => _answers[index] = val!);
+                          },
+                        );
+                      }).toList(),
+                    );
+                  } else if (qType == 'Checkboxes') {
+                    inputWidget = Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: options.map((opt) {
+                        final list = _answers[index] as List<String>;
+                        final isChecked = list.contains(opt.toString());
+                        return CheckboxListTile(
+                          title: Text(opt.toString()),
+                          value: isChecked,
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true) {
+                                list.add(opt.toString());
+                              } else {
+                                list.remove(opt.toString());
+                              }
+                            });
+                          },
+                        );
+                      }).toList(),
+                    );
+                  } else {
+                    inputWidget = TextField(
+                      onChanged: (val) => _answers[index] = val,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                      ),
+                    );
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 24.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          q['text'] ?? 'Question ${index + 1}',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        inputWidget,
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            _isLoading
+                ? const CircularProgressIndicator()
+                : SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _submitForm,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Submit Survey', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
