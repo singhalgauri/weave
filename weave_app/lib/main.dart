@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
+// For Android Emulator, use 10.0.2.2
+// For Web or iOS Simulator, use 127.0.0.1
+// For Physical Devices, use your computer's local Wi-Fi IP address (e.g., 192.168.x.x)
+const String backendBaseUrl = 'http://10.90.131.179:3000';
+
 String? globalUserEmail;
 String? globalJwtToken;
 Map<String, dynamic>? globalUserData;
@@ -258,21 +263,21 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> submit() async {
     setState(() => isLoading = true);
-    final url = isLogin ? 'http://127.0.0.1:3000/login' : 'http://127.0.0.1:3000/register';
-    
-    final body = isLogin 
-      ? {
-          'email': emailController.text.trim(),
-          'password': passwordController.text,
-        }
-      : {
-          'email': emailController.text.trim(),
-          'password': passwordController.text,
-          'name': nameController.text.trim(),
-          'dob': dobController.text.trim(),
-          'phone': phoneController.text.trim(),
-          'location': locationController.text.trim(),
-        };
+    final url = isLogin ? '$backendBaseUrl/login' : '$backendBaseUrl/register';
+
+    final body = isLogin
+        ? {
+            'email': emailController.text.trim(),
+            'password': passwordController.text,
+          }
+        : {
+            'email': emailController.text.trim(),
+            'password': passwordController.text,
+            'name': nameController.text.trim(),
+            'dob': dobController.text.trim(),
+            'phone': phoneController.text.trim(),
+            'location': locationController.text.trim(),
+          };
 
     try {
       final res = await http.post(
@@ -285,7 +290,7 @@ class _LoginPageState extends State<LoginPage> {
         globalUserEmail = data['user']['email'];
         globalJwtToken = data['token'];
         globalUserData = data['user'];
-        
+
         final isVolunteer = data['user']['isVolunteer'] == true;
         if (isVolunteer) {
           Navigator.pushReplacement(
@@ -295,16 +300,20 @@ class _LoginPageState extends State<LoginPage> {
         } else {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => const CivilianDashboardPage()),
+            MaterialPageRoute(
+              builder: (context) => const CivilianDashboardPage(),
+            ),
           );
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['error'] ?? 'Error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(data['error'] ?? 'Error')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Connection Error: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Connection Error: $e')));
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -346,29 +355,39 @@ class _LoginPageState extends State<LoginPage> {
                       const SizedBox(height: 10),
                       TextField(
                         controller: passwordController,
-                        decoration: const InputDecoration(labelText: 'Password'),
+                        decoration: const InputDecoration(
+                          labelText: 'Password',
+                        ),
                         obscureText: true,
                       ),
                       if (!isLogin) ...[
                         const SizedBox(height: 10),
                         TextField(
                           controller: nameController,
-                          decoration: const InputDecoration(labelText: 'Full Name'),
+                          decoration: const InputDecoration(
+                            labelText: 'Full Name',
+                          ),
                         ),
                         const SizedBox(height: 10),
                         TextField(
                           controller: dobController,
-                          decoration: const InputDecoration(labelText: 'Date of Birth (YYYY-MM-DD)'),
+                          decoration: const InputDecoration(
+                            labelText: 'Date of Birth (YYYY-MM-DD)',
+                          ),
                         ),
                         const SizedBox(height: 10),
                         TextField(
                           controller: phoneController,
-                          decoration: const InputDecoration(labelText: 'Phone Number'),
+                          decoration: const InputDecoration(
+                            labelText: 'Phone Number',
+                          ),
                         ),
                         const SizedBox(height: 10),
                         TextField(
                           controller: locationController,
-                          decoration: const InputDecoration(labelText: 'Location / Address'),
+                          decoration: const InputDecoration(
+                            labelText: 'Location / Address',
+                          ),
                         ),
                       ],
                       const SizedBox(height: 20),
@@ -378,7 +397,8 @@ class _LoginPageState extends State<LoginPage> {
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
-                                child: CircularProgressIndicator())
+                                child: CircularProgressIndicator(),
+                              )
                             : Text(isLogin ? 'Login' : 'Register'),
                       ),
                       const SizedBox(height: 10),
@@ -420,14 +440,15 @@ class _VolunteerVerificationDialogState
 
   Future<void> submitApplication() async {
     if (globalUserEmail == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please login first!')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please login first!')));
       return;
     }
     setState(() => isLoading = true);
     try {
       final res = await http.post(
-        Uri.parse('http://127.0.0.1:3000/upgrade-volunteer'),
+        Uri.parse('$backendBaseUrl/upgrade-volunteer'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $globalJwtToken',
@@ -441,12 +462,14 @@ class _VolunteerVerificationDialogState
         );
       } else {
         final data = jsonDecode(res.body);
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['error'] ?? 'Error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(data['error'] ?? 'Error')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Connection Error: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Connection Error: $e')));
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -488,7 +511,10 @@ class _VolunteerVerificationDialogState
               onPressed: isLoading ? null : submitApplication,
               child: isLoading
                   ? const SizedBox(
-                      width: 20, height: 20, child: CircularProgressIndicator())
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(),
+                    )
                   : const Text('Submit Application'),
             ),
           ],
@@ -524,7 +550,7 @@ class _ProfilePageState extends State<ProfilePage> {
     });
     try {
       final res = await http.get(
-        Uri.parse('http://127.0.0.1:3000/profile'),
+        Uri.parse('$backendBaseUrl/profile'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $globalJwtToken',
@@ -537,7 +563,8 @@ class _ProfilePageState extends State<ProfilePage> {
         });
       } else {
         setState(() {
-          errorMessage = 'Failed to load profile. Error code: ${res.statusCode}';
+          errorMessage =
+              'Failed to load profile. Error code: ${res.statusCode}';
         });
       }
     } catch (e) {
@@ -562,89 +589,95 @@ class _ProfilePageState extends State<ProfilePage> {
         child: isLoading
             ? const CircularProgressIndicator()
             : errorMessage != null
-                ? Text(errorMessage!, style: const TextStyle(color: Colors.red))
-                : profileData == null
-                    ? const Text('No profile data found.')
-                    : SingleChildScrollView(
-                        child: Card(
-                          margin: const EdgeInsets.all(20),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(32.0),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const CircleAvatar(
-                                  radius: 50,
-                                  backgroundColor: Colors.deepPurple,
-                                  child: Icon(Icons.person, size: 50, color: Colors.white),
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  profileData!['name'] ?? 'Unknown Name',
-                                  style: const TextStyle(
-                                      fontSize: 28, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 10),
-                                Chip(
-                                  label: Text(
-                                    profileData!['isVolunteer'] == true
-                                        ? 'Verified Volunteer'
-                                        : 'Civilian',
-                                    style: const TextStyle(color: Colors.white),
-                                  ),
-                                  backgroundColor: profileData!['isVolunteer'] == true
-                                      ? Colors.green
-                                      : Colors.blue,
-                                ),
-                                const Divider(height: 40),
-                                ListTile(
-                                  leading: const Icon(Icons.email),
-                                  title: const Text('Email'),
-                                  subtitle: Text(profileData!['email'] ?? 'N/A'),
-                                ),
-                                ListTile(
-                                  leading: const Icon(Icons.phone),
-                                  title: const Text('Phone'),
-                                  subtitle: Text(profileData!['phone'] ?? 'N/A'),
-                                ),
-                                ListTile(
-                                  leading: const Icon(Icons.cake),
-                                  title: const Text('Date of Birth'),
-                                  subtitle: Text(profileData!['dob'] ?? 'N/A'),
-                                ),
-                                ListTile(
-                                  leading: const Icon(Icons.location_on),
-                                  title: const Text('Location'),
-                                  subtitle: Text(profileData!['location'] ?? 'N/A'),
-                                ),
-                                const SizedBox(height: 20),
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    globalUserEmail = null;
-                                    globalJwtToken = null;
-                                    globalUserData = null;
-                                    Navigator.pushAndRemoveUntil(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => const LoginPage(),
-                                      ),
-                                      (Route<dynamic> route) => false,
-                                    );
-                                  },
-                                  icon: const Icon(Icons.logout),
-                                  label: const Text('Logout'),
-                                  style: ElevatedButton.styleFrom(
-                                    foregroundColor: Colors.red,
-                                  ),
-                                ),
-                              ],
-                            ),
+            ? Text(errorMessage!, style: const TextStyle(color: Colors.red))
+            : profileData == null
+            ? const Text('No profile data found.')
+            : SingleChildScrollView(
+                child: Card(
+                  margin: const EdgeInsets.all(20),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircleAvatar(
+                          radius: 50,
+                          backgroundColor: Colors.deepPurple,
+                          child: Icon(
+                            Icons.person,
+                            size: 50,
+                            color: Colors.white,
                           ),
                         ),
-                      ),
+                        const SizedBox(height: 20),
+                        Text(
+                          profileData!['name'] ?? 'Unknown Name',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Chip(
+                          label: Text(
+                            profileData!['isVolunteer'] == true
+                                ? 'Verified Volunteer'
+                                : 'Civilian',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          backgroundColor: profileData!['isVolunteer'] == true
+                              ? Colors.green
+                              : Colors.blue,
+                        ),
+                        const Divider(height: 40),
+                        ListTile(
+                          leading: const Icon(Icons.email),
+                          title: const Text('Email'),
+                          subtitle: Text(profileData!['email'] ?? 'N/A'),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.phone),
+                          title: const Text('Phone'),
+                          subtitle: Text(profileData!['phone'] ?? 'N/A'),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.cake),
+                          title: const Text('Date of Birth'),
+                          subtitle: Text(profileData!['dob'] ?? 'N/A'),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.location_on),
+                          title: const Text('Location'),
+                          subtitle: Text(profileData!['location'] ?? 'N/A'),
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            globalUserEmail = null;
+                            globalJwtToken = null;
+                            globalUserData = null;
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const LoginPage(),
+                              ),
+                              (Route<dynamic> route) => false,
+                            );
+                          },
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Logout'),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
       ),
     );
   }
