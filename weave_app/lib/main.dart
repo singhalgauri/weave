@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // For Android Emulator, use 10.0.2.2
 // For Web or iOS Simulator, use 127.0.0.1
@@ -125,6 +127,20 @@ class BackgroundMapPage extends StatelessWidget {
                           context,
                           MaterialPageRoute(
                             builder: (context) => const SurveysListPage(),
+                          ),
+                        );
+                      } else if (name == 'Task Region') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const VolunteerTasksPage(),
+                          ),
+                        );
+                      } else if (name == 'Impact Region') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ImpactDashboardPage(),
                           ),
                         );
                       } else {
@@ -283,10 +299,72 @@ class _LoginPageState extends State<LoginPage> {
   final dobController = TextEditingController();
   final phoneController = TextEditingController();
   final locationController = TextEditingController();
+  final otpController = TextEditingController();
+  bool otpSent = false;
+  bool isSendingOtp = false;
+
+  Future<void> sendOtp() async {
+    if (phoneController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter phone number')));
+      return;
+    }
+    setState(() => isSendingOtp = true);
+    try {
+      final res = await http.post(
+        Uri.parse('$backendBaseUrl/send-otp'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'phone': phoneController.text.trim()}),
+      );
+      if (res.statusCode == 200) {
+        setState(() => otpSent = true);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('OTP sent to WhatsApp!')));
+      } else {
+        final data = jsonDecode(res.body);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['error'] ?? 'Error sending OTP')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => isSendingOtp = false);
+    }
+  }
+
+  double? _lat;
+  double? _lng;
+
+  Future<Position?> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return null;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return null;
+    }
+    
+    if (permission == LocationPermission.deniedForever) return null;
+
+    return await Geolocator.getCurrentPosition();
+  }
 
   Future<void> submit() async {
     setState(() => isLoading = true);
     final url = isLogin ? '$backendBaseUrl/login' : '$backendBaseUrl/register';
+
+    if (!isLogin) {
+      try {
+        final position = await _determinePosition();
+        if (position != null) {
+          _lat = position.latitude;
+          _lng = position.longitude;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
 
     final body = isLogin
         ? {
@@ -300,7 +378,16 @@ class _LoginPageState extends State<LoginPage> {
             'dob': dobController.text.trim(),
             'phone': phoneController.text.trim(),
             'location': locationController.text.trim(),
+            'lat': _lat,
+            'lng': _lng,
+            'otp': otpController.text.trim(),
           };
+
+    if (!isLogin && otpController.text.isEmpty) {
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please verify your phone number with OTP')));
+      return;
+    }
 
     try {
       final res = await http.post(
@@ -399,12 +486,30 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        TextField(
-                          controller: phoneController,
-                          decoration: const InputDecoration(
-                            labelText: 'Phone Number',
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: phoneController,
+                                decoration: const InputDecoration(
+                                  labelText: 'WhatsApp Phone Number',
+                                ),
+                              ),
+                            ),
+                            if (!otpSent)
+                               TextButton(
+                                 onPressed: isSendingOtp ? null : sendOtp,
+                                 child: isSendingOtp ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Send OTP'),
+                               )
+                          ],
                         ),
+                        if (otpSent) ...[
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: otpController,
+                            decoration: const InputDecoration(labelText: 'Enter OTP'),
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         TextField(
                           controller: locationController,
@@ -1109,3 +1214,349 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
   }
 }
 
+class VolunteerTasksPage extends StatefulWidget {
+  const VolunteerTasksPage({super.key});
+
+  @override
+  State<VolunteerTasksPage> createState() => _VolunteerTasksPageState();
+}
+
+class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
+  List<dynamic> tasks = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchTasks();
+  }
+
+  Future<void> fetchTasks() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$backendBaseUrl/my-tasks'),
+        headers: {'Authorization': 'Bearer $globalJwtToken'},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          tasks = jsonDecode(res.body);
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> respondToTask(String taskId, String response) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$backendBaseUrl/tasks/$taskId/respond'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $globalJwtToken',
+        },
+        body: jsonEncode({'response': response}),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Task ${response}ed successfully')),
+        );
+
+        // If accepted and calendar URL is available, offer to open it
+        if (response == 'accept' && data['addToCalendarUrl'] != null) {
+          final calUrl = data['addToCalendarUrl'] as String;
+          if (mounted) {
+            showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Add to Google Calendar?'),
+                content: const Text('This task has been added to your schedule. Would you like to add it to your Google Calendar?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Later'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final uri = Uri.parse(calUrl);
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                    child: const Text('Open Calendar', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
+            );
+          }
+        }
+
+        fetchTasks();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to respond to task')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('My Assigned Tasks')),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : tasks.isEmpty
+              ? const Center(child: Text('No tasks assigned to you.'))
+              : ListView.builder(
+                  itemCount: tasks.length,
+                  itemBuilder: (context, index) {
+                    final t = tasks[index];
+                    final String taskId = t['_id'];
+                    final List<dynamic> assigned = t['assignedVolunteers'] ?? [];
+                    final myAssignment = assigned.firstWhere(
+                      (v) => v['email'] == globalUserEmail, 
+                      orElse: () => null
+                    );
+                    final String status = myAssignment != null ? myAssignment['status'] : 'Pending';
+
+                    return Card(
+                      margin: const EdgeInsets.all(8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              t['title'] ?? 'Untitled Task',
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Text('Type: ${t['type']}'),
+                            Text('Location: ${t['location']}'),
+                            const SizedBox(height: 8),
+                            Text(t['description'] ?? ''),
+
+                            // ─── Schedule Info ───────────────────────────
+                            if (t['scheduledDate'] != null) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.blue.shade100),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.calendar_month, color: Colors.blue.shade400, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            DateTime.parse(t['scheduledDate']).toLocal().toString().split(' ')[0] +
+                                            (t['scheduledTime'] != null ? '  ${t['scheduledTime']}' : ''),
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.blue.shade700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    // Add to Calendar Button
+                                    TextButton.icon(
+                                      onPressed: () async {
+                                        final dateStr = DateTime.parse(t['scheduledDate'])
+                                            .toUtc()
+                                            .toIso8601String()
+                                            .replaceAll(RegExp(r'[-:]'), '')
+                                            .split('.')[0] + 'Z';
+                                        final endStr = DateTime.parse(t['scheduledDate'])
+                                            .toUtc()
+                                            .add(const Duration(hours: 2))
+                                            .toIso8601String()
+                                            .replaceAll(RegExp(r'[-:]'), '')
+                                            .split('.')[0] + 'Z';
+                                        final calUrl = Uri.parse(
+                                          'https://calendar.google.com/calendar/render?action=TEMPLATE'
+                                          '&text=${Uri.encodeComponent('[Weave] ${t['title']}')}'  
+                                          '&dates=$dateStr/$endStr'
+                                          '&details=${Uri.encodeComponent(t['description'] ?? '')}'
+                                          '&location=${Uri.encodeComponent(t['location'] ?? '')}'
+                                        );
+                                        if (await canLaunchUrl(calUrl)) {
+                                          await launchUrl(calUrl, mode: LaunchMode.externalApplication);
+                                        }
+                                      },
+                                      icon: const Icon(Icons.open_in_new, size: 14),
+                                      label: const Text('Add', style: TextStyle(fontSize: 12)),
+                                      style: TextButton.styleFrom(foregroundColor: Colors.blue),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Chip(
+                                  label: Text(status),
+                                  backgroundColor: status == 'Accepted' 
+                                      ? Colors.green[100] 
+                                      : status == 'Rejected' 
+                                          ? Colors.red[100] 
+                                          : Colors.orange[100],
+                                ),
+                                if (status == 'Pending')
+                                  Row(
+                                    children: [
+                                      TextButton(
+                                        onPressed: () => respondToTask(taskId, 'reject'),
+                                        child: const Text('Reject', style: TextStyle(color: Colors.red)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      ElevatedButton(
+                                        onPressed: () => respondToTask(taskId, 'accept'),
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                                        child: const Text('Accept', style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+    );
+  }
+}
+
+class ImpactDashboardPage extends StatefulWidget {
+  const ImpactDashboardPage({super.key});
+
+  @override
+  State<ImpactDashboardPage> createState() => _ImpactDashboardPageState();
+}
+
+class _ImpactDashboardPageState extends State<ImpactDashboardPage> {
+  Map<String, dynamic>? impactData;
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchImpact();
+  }
+
+  Future<void> fetchImpact() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$backendBaseUrl/my-impact'),
+        headers: {'Authorization': 'Bearer $globalJwtToken'},
+      );
+      if (res.statusCode == 200) {
+        setState(() { impactData = jsonDecode(res.body); isLoading = false; });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = impactData?['stats'] as Map<String, dynamic>? ?? {};
+    final badges = impactData?['badges'] as List<dynamic>? ?? [];
+    final completedTasks = impactData?['completedTasks'] as List<dynamic>? ?? [];
+
+    return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(title: const Text('My Impact'), backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF4a3e3e), Color(0xFF7b5ea7)]),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Column(children: [
+                      const Text('Your Impact Score', style: TextStyle(color: Colors.white70, fontSize: 12, letterSpacing: 2)),
+                      const SizedBox(height: 4),
+                      Text('${stats['impactScore'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 16),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+                        _StatChip(label: 'Tasks Done', value: '${stats['totalCompleted'] ?? 0}'),
+                        _StatChip(label: 'High Urgency', value: '${stats['highUrgencyCompleted'] ?? 0}'),
+                        _StatChip(label: 'Badges', value: '${badges.length}'),
+                      ]),
+                    ]),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text('Earned Badges', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  badges.isEmpty
+                    ? const Text('Complete tasks to earn your first badge!', style: TextStyle(color: Colors.grey))
+                    : Wrap(spacing: 10, runSpacing: 10, children: badges.map((b) => Chip(
+                        avatar: Text(b['emoji'] ?? '', style: const TextStyle(fontSize: 16)),
+                        label: Text(b['name'] ?? ''),
+                        backgroundColor: Colors.purple.shade50,
+                      )).toList()),
+                  const SizedBox(height: 24),
+                  const Text('Completed Tasks', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  completedTasks.isEmpty
+                    ? const Text('No completed tasks yet.', style: TextStyle(color: Colors.grey))
+                    : Column(children: completedTasks.map((t) => Card(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        child: ListTile(
+                          leading: const Icon(Icons.check_circle, color: Colors.green),
+                          title: Text(t['title'] ?? ''),
+                          subtitle: Text('${t['type']} � ${t['location']}'),
+                          trailing: Chip(label: Text('U:${t['urgency'] ?? 5}', style: const TextStyle(fontSize: 10))),
+                        ),
+                      )).toList()),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final String label;
+  final String value;
+  const _StatChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+    ]);
+  }
+}
