@@ -26,17 +26,6 @@ import {
   Flower2,
   Settings,
   Pentagon as PentagonIcon,
-  Cpu,
-  Zap,
-  AlertTriangle,
-  TrendingUp,
-  RefreshCw,
-  Sparkles,
-  Award,
-  Trophy,
-  FileText,
-  BookOpen,
-  Mail
 } from "lucide-react";
 
 // --- Custom Icons ---
@@ -54,7 +43,7 @@ const Pentagon = ({ size, fill, stroke, strokeWidth, className }: any) => (
 
 // --- Types & Constants ---
 
-type Section = "Volunteers" | "Impact Projects" | "Survey Loom" | "NGO Network" | "Community Fabric" | "Orchestrator" | "Impact Correspondent";
+type Section = "Volunteers" | "Impact Projects" | "Survey Loom" | "NGO Network" | "Community Fabric";
 
 interface HubPoint {
   section: Section;
@@ -72,8 +61,6 @@ const HUB_POINTS: HubPoint[] = [
   { section: "Survey Loom", top: "70%", left: "22%", icon: ClipboardList, description: "Collect data from the field", shape: "pentagon", color: "#d8e6e0" },
   { section: "NGO Network", top: "74%", left: "72%", icon: Network, description: "Coordinate with partner organizations", shape: "pentagon", color: "#fdf6e3" },
   { section: "Community Fabric", top: "20%", left: "82%", icon: MapIcon, description: "Visualize the social landscape", shape: "pentagon", color: "#f4dada" },
-  { section: "Orchestrator", top: "48%", left: "12%", icon: Cpu, description: "AI Resource Orchestrator — The Decide Agent", shape: "pentagon", color: "#c8d8f0" },
-  { section: "Impact Correspondent", top: "68%", left: "45%", icon: Sparkles, description: "AI Feedback Agent — Stories, Badges & Reports", shape: "pentagon", color: "#d4f0d4" },
 ];
 
 const THEME = {
@@ -331,6 +318,22 @@ function ProjectStub() {
     }
   };
 
+  const markTaskFinished = async (id: string) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:5000/tasks/${id}/complete`, {
+        method: "PATCH",
+      });
+      if (res.ok) {
+        fetchTasks();
+      } else {
+        const text = await res.text();
+        console.error("Failed to mark task finished:", res.status, text);
+      }
+    } catch (err) {
+      console.error("Error marking task finished:", err);
+    }
+  };
+
   const handleCreate = async () => {
     if (!title || !description || !location || !volunteersNeeded) return;
     setIsSubmitting(true);
@@ -483,8 +486,21 @@ function ProjectStub() {
                   <h4 className="font-black text-lg text-[#4a3e3e]">{task.title}</h4>
                   <p className="text-[10px] uppercase font-black tracking-widest text-[#4a3e3e]/40 mt-1">{task.type} • {task.location}</p>
                 </div>
-                <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${task.status === 'Assigned' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
-                  {task.status}
+                <div className="flex items-center gap-2">
+                  <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                    task.status === 'Completed' ? 'bg-blue-100 text-blue-600' : 
+                    task.status === 'Assigned' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'
+                  }`}>
+                    {task.status}
+                  </div>
+                  {task.status !== 'Completed' && (
+                    <button
+                      onClick={() => markTaskFinished(task._id)}
+                      className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-[#4a3e3e] text-[#fcf8f6] hover:bg-[#4a3e3e]/80 transition-colors"
+                    >
+                      Mark Finished
+                    </button>
+                  )}
                 </div>
               </div>
               <p className="text-sm font-bold text-[#4a3e3e]/60 mt-4 bg-[#fcf8f6] p-4 rounded-xl border border-[#4a3e3e]/5">
@@ -869,291 +885,7 @@ function SurveyLoom() {
   );
 }
 
-// --- Orchestrator Panel ---
 
-function OrchestratorPanel() {
-  const [pulse, setPulse] = useState<any>(null);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [loadingPulse, setLoadingPulse] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [conflictForm, setConflictForm] = useState({ volunteerEmail: '', taskAId: '', taskBId: '' });
-  const [conflictResult, setConflictResult] = useState<any>(null);
-  const [conflictLoading, setConflictLoading] = useState(false);
-
-  const fetchPulse = async () => {
-    setLoadingPulse(true);
-    try {
-      const [p, l] = await Promise.all([
-        fetch('http://127.0.0.1:5000/orchestrator/pulse').then(r => r.json()),
-        fetch('http://127.0.0.1:5000/orchestrator/logs').then(r => r.json()),
-      ]);
-      setPulse(p);
-      setLogs(l);
-    } catch (e) { console.error(e); }
-    finally { setLoadingPulse(false); }
-  };
-
-  useEffect(() => { fetchPulse(); }, []);
-
-  const triggerPredict = async () => {
-    setRunning(true);
-    try {
-      const res = await fetch('http://127.0.0.1:5000/orchestrator/predict', { method: 'POST' });
-      await res.json();
-      await fetchPulse();
-    } finally { setRunning(false); }
-  };
-
-  const solveConflict = async () => {
-    setConflictLoading(true);
-    setConflictResult(null);
-    try {
-      const res = await fetch('http://127.0.0.1:5000/orchestrator/conflict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(conflictForm)
-      });
-      const data = await res.json();
-      setConflictResult(data);
-    } finally { setConflictLoading(false); }
-  };
-
-  const logTypeIcon = (type: string) => {
-    if (type === 'CONFLICT') return <AlertTriangle size={14} className="text-orange-500" />;
-    if (type === 'PREDICTIVE') return <TrendingUp size={14} className="text-blue-500" />;
-    if (type === 'PRIORITY') return <Zap size={14} className="text-yellow-500" />;
-    return <Cpu size={14} className="text-[#4a3e3e]/40" />;
-  };
-
-  return (
-    <div className="space-y-6 max-h-[72vh] overflow-y-auto pr-1">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-[#4a3e3e]/10 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
-            <Cpu size={24} className="text-blue-400" />
-          </div>
-          <div>
-            <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Resource Orchestrator</h3>
-            <p className="text-[10px] font-black uppercase tracking-widest text-[#4a3e3e]/40">The Decide Agent · AI-powered dispatch</p>
-          </div>
-        </div>
-        <button onClick={fetchPulse} className="p-2 rounded-xl bg-[#fcf8f6] hover:bg-[#4a3e3e]/5 transition-all">
-          <RefreshCw size={18} className="text-[#4a3e3e]/50" />
-        </button>
-      </div>
-
-      {/* Pulse Stats */}
-      {loadingPulse ? (
-        <p className="text-[#4a3e3e]/50 font-bold text-sm">Loading system pulse...</p>
-      ) : pulse && (
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: 'Volunteers', val: pulse.volunteers, color: 'text-teal-500', bg: 'bg-teal-50' },
-            { label: 'Pending Tasks', val: pulse.pendingTasks, color: 'text-orange-500', bg: 'bg-orange-50' },
-            { label: 'Assigned Tasks', val: pulse.assignedTasks, color: 'text-green-500', bg: 'bg-green-50' },
-            { label: 'Problems 24h', val: pulse.problemsLast24h, color: 'text-red-500', bg: 'bg-red-50' },
-          ].map(s => (
-            <div key={s.label} className={`${s.bg} p-4 rounded-2xl border border-[#4a3e3e]/5`}>
-              <p className="text-[9px] font-black uppercase tracking-widest text-[#4a3e3e]/50">{s.label}</p>
-              <p className={`text-2xl font-black ${s.color} mt-1`}>{s.val ?? '—'}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Priority Formula */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-5 border border-blue-100">
-        <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-2">Priority Formula</p>
-        <div className="font-mono text-xl text-[#4a3e3e] font-black">
-          P = (U × S) / D
-        </div>
-        <p className="text-xs text-[#4a3e3e]/50 mt-2 font-bold">Urgency × Skill Match ÷ Distance (km) — scored 24/7 for every task-volunteer pair</p>
-      </div>
-
-      {/* Predictive Trigger */}
-      <div className="bg-white p-5 rounded-2xl border border-[#4a3e3e]/5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-black text-[#4a3e3e] text-sm uppercase tracking-wider">Predictive Mobilization</p>
-            <p className="text-xs text-[#4a3e3e]/50 font-bold mt-1">Scans problem reports for ≥20% category spikes and pre-alerts nearest volunteers</p>
-          </div>
-          <button
-            onClick={triggerPredict}
-            disabled={running}
-            className="px-5 py-3 bg-blue-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-blue-600 disabled:opacity-50 transition-all flex items-center gap-2"
-          >
-            {running ? <><Loader2 size={14} className="animate-spin" /> Running...</> : <><TrendingUp size={14} /> Run Scan</>}
-          </button>
-        </div>
-      </div>
-
-      {/* Conflict Resolver */}
-      <div className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <AlertTriangle size={16} className="text-orange-400" />
-          <p className="font-black text-[#4a3e3e] text-sm uppercase tracking-wider">Conflict Resolution</p>
-        </div>
-        <p className="text-xs text-[#4a3e3e]/50 font-bold">Paste in a volunteer email and two Task IDs. The AI evaluates the Regret Factor and recommends the optimal allocation.</p>
-        <input
-          placeholder="Volunteer Email"
-          value={conflictForm.volunteerEmail}
-          onChange={e => setConflictForm(f => ({...f, volunteerEmail: e.target.value}))}
-          className="w-full bg-[#fcf8f6] px-4 py-3 rounded-xl border-none focus:ring-2 focus:ring-orange-200 text-sm font-bold"
-        />
-        <div className="flex gap-3">
-          <input
-            placeholder="Task A ID"
-            value={conflictForm.taskAId}
-            onChange={e => setConflictForm(f => ({...f, taskAId: e.target.value}))}
-            className="w-1/2 bg-[#fcf8f6] px-4 py-3 rounded-xl border-none focus:ring-2 focus:ring-orange-200 text-sm font-bold"
-          />
-          <input
-            placeholder="Task B ID"
-            value={conflictForm.taskBId}
-            onChange={e => setConflictForm(f => ({...f, taskBId: e.target.value}))}
-            className="w-1/2 bg-[#fcf8f6] px-4 py-3 rounded-xl border-none focus:ring-2 focus:ring-orange-200 text-sm font-bold"
-          />
-        </div>
-        <button
-          onClick={solveConflict}
-          disabled={conflictLoading}
-          className="w-full py-3 bg-orange-500 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-orange-600 disabled:opacity-50 transition-all"
-        >
-          {conflictLoading ? 'Analyzing Regret Factor...' : 'Resolve Conflict'}
-        </button>
-        {conflictResult && (
-          <div className="mt-4 bg-orange-50 p-4 rounded-xl border border-orange-100 space-y-2">
-            <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">AI Recommendation</p>
-            <p className="text-sm font-bold text-[#4a3e3e]">{conflictResult.recommendation}</p>
-            <div className="flex gap-2 mt-2">
-              <span className="text-[10px] font-black uppercase px-2 py-1 bg-green-100 text-green-600 rounded-full">Prioritize: {conflictResult.winner?.title}</span>
-              <span className="text-[10px] font-black uppercase px-2 py-1 bg-red-100 text-red-600 rounded-full">Reassign: {conflictResult.loser?.title}</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Agent Decision Log */}
-      <div className="space-y-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-[#4a3e3e]/40 mb-3">Recent Agent Decisions</p>
-        {logs.length === 0 ? (
-          <p className="text-[#4a3e3e]/40 font-bold text-sm italic">No decisions logged yet.</p>
-        ) : logs.map((log, i) => (
-          <div key={i} className="bg-white p-4 rounded-xl border border-[#4a3e3e]/5 shadow-sm flex items-start gap-3">
-            <div className="mt-0.5">{logTypeIcon(log.type)}</div>
-            <div className="flex-1">
-              <p className="text-xs font-black text-[#4a3e3e]">{log.summary}</p>
-              <p className="text-[10px] text-[#4a3e3e]/40 font-bold mt-1">
-                {new Date(log.createdAt).toLocaleString()} · {log.type}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// --- Impact Correspondent Panel ---
-
-function ImpactCorrespondentPanel() {
-  const [stories, setStories] = useState<any[]>([]);
-  const [badges, setBadges] = useState<any[]>([]);
-  const [loadingStories, setLoadingStories] = useState(true);
-  const [tab, setTab] = useState<'stories' | 'badges'>('stories');
-
-  useEffect(() => {
-    Promise.all([
-      fetch('http://127.0.0.1:5000/impact/stories').then(r => r.json()),
-      fetch('http://127.0.0.1:5000/impact/badges').then(r => r.json()),
-    ]).then(([s, b]) => {
-      setStories(s);
-      setBadges(b);
-      setLoadingStories(false);
-    }).catch(() => setLoadingStories(false));
-  }, []);
-
-
-  const tabs = [
-    { id: 'stories', label: 'Impact Stories', icon: BookOpen },
-    { id: 'badges', label: 'Badge Library', icon: Trophy },
-  ] as const;
-
-  return (
-    <div className="space-y-5 max-h-[72vh] overflow-y-auto pr-1">
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b border-[#4a3e3e]/10 pb-4">
-        <div className="p-3 rounded-xl bg-green-50 border border-green-100">
-          <Sparkles size={24} className="text-green-400" />
-        </div>
-        <div>
-          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Impact Correspondent</h3>
-          <p className="text-[10px] font-black uppercase tracking-widest text-[#4a3e3e]/40">The Feedback Agent · Stories & Badges</p>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-2">
-        {tabs.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex-1 py-2.5 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-all ${
-              tab === t.id
-                ? 'bg-[#4a3e3e] text-white shadow-md'
-                : 'bg-[#fcf8f6] text-[#4a3e3e]/60 hover:bg-[#4a3e3e]/5'
-            }`}
-          >
-            <t.icon size={12} />{t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Impact Stories Tab */}
-      {tab === 'stories' && (
-        <div className="space-y-3">
-          {loadingStories ? (
-            <p className="text-[#4a3e3e]/50 font-bold text-sm">Loading stories...</p>
-          ) : stories.length === 0 ? (
-            <div className="flex flex-col items-center py-12 text-center space-y-3">
-              <Sparkles size={40} className="text-green-200" />
-              <p className="text-[#4a3e3e]/40 font-bold text-sm">No stories yet. Complete tasks to generate impact narratives!</p>
-            </div>
-          ) : stories.map((s, i) => (
-            <div key={i} className="bg-white rounded-2xl p-5 border border-green-50 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 bg-green-50 text-green-600 rounded-full border border-green-100">{s.type}</span>
-                <span className="text-[9px] font-black uppercase tracking-widest text-[#4a3e3e]/40">{s.location}</span>
-              </div>
-              <p className="text-sm font-bold text-[#4a3e3e] leading-relaxed italic">&ldquo;{s.narrative}&rdquo;</p>
-              <p className="text-[10px] text-[#4a3e3e]/30 font-bold mt-3">{new Date(s.createdAt).toLocaleDateString()}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Badge Library Tab */}
-      {tab === 'badges' && (
-        <div className="space-y-3">
-          <p className="text-xs font-bold text-[#4a3e3e]/50 mb-2">All earnable badges — volunteers unlock these automatically by completing tasks.</p>
-          <div className="grid grid-cols-2 gap-3">
-            {badges.map((b: any) => (
-              <div key={b.id} className="bg-white rounded-2xl p-4 border border-[#4a3e3e]/5 shadow-sm flex items-start gap-3">
-                <div className="text-3xl">{b.emoji}</div>
-                <div>
-                  <p className="font-black text-sm text-[#4a3e3e]">{b.name}</p>
-                  <p className="text-[10px] text-[#4a3e3e]/50 font-bold mt-0.5">{b.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-    </div>
-  );
-}
 
 // --- Main Dashboard ---
 
@@ -1316,8 +1048,6 @@ export default function WeaveHubDashboard() {
                     </div>
                   )}
                   {activeSection === "Community Fabric" && <CommunityFabric />}
-                  {activeSection === "Orchestrator" && <OrchestratorPanel />}
-                  {activeSection === "Impact Correspondent" && <ImpactCorrespondentPanel />}
                 </div>
               </div>
               

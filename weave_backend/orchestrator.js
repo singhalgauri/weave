@@ -10,7 +10,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const cron = require('node-cron');
 
-let User, Task, Problem, OrchestratorLog, sendWhatsAppMessage;
+let User, Task, Problem, OrchestratorLog;
 
 // -------------------------------------------------------------------
 // SCHEMA: OrchestratorLog — persists every agent decision for audit

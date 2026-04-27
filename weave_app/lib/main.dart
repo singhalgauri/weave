@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
@@ -9,7 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 // For Android Emulator, use 10.0.2.2
 // For Web or iOS Simulator, use 127.0.0.1
 // For Physical Devices, use your computer's local Wi-Fi IP address (e.g., 192.168.x.x)
-const String backendBaseUrl = 'http://10.90.131.179:5000';
+const String backendBaseUrl = 'http://localhost:5000';
 
 String? globalUserEmail;
 String? globalJwtToken;
@@ -299,35 +299,7 @@ class _LoginPageState extends State<LoginPage> {
   final dobController = TextEditingController();
   final phoneController = TextEditingController();
   final locationController = TextEditingController();
-  final otpController = TextEditingController();
-  bool otpSent = false;
-  bool isSendingOtp = false;
 
-  Future<void> sendOtp() async {
-    if (phoneController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter phone number')));
-      return;
-    }
-    setState(() => isSendingOtp = true);
-    try {
-      final res = await http.post(
-        Uri.parse('$backendBaseUrl/send-otp'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'phone': phoneController.text.trim()}),
-      );
-      if (res.statusCode == 200) {
-        setState(() => otpSent = true);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('OTP sent to WhatsApp!')));
-      } else {
-        final data = jsonDecode(res.body);
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['error'] ?? 'Error sending OTP')));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-    } finally {
-      if (mounted) setState(() => isSendingOtp = false);
-    }
-  }
 
   double? _lat;
   double? _lng;
@@ -380,14 +352,8 @@ class _LoginPageState extends State<LoginPage> {
             'location': locationController.text.trim(),
             'lat': _lat,
             'lng': _lng,
-            'otp': otpController.text.trim(),
           };
 
-    if (!isLogin && otpController.text.isEmpty) {
-      setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please verify your phone number with OTP')));
-      return;
-    }
 
     try {
       final res = await http.post(
@@ -486,30 +452,7 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: phoneController,
-                                decoration: const InputDecoration(
-                                  labelText: 'WhatsApp Phone Number',
-                                ),
-                              ),
-                            ),
-                            if (!otpSent)
-                               TextButton(
-                                 onPressed: isSendingOtp ? null : sendOtp,
-                                 child: isSendingOtp ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Send OTP'),
-                               )
-                          ],
-                        ),
-                        if (otpSent) ...[
-                          const SizedBox(height: 10),
-                          TextField(
-                            controller: otpController,
-                            decoration: const InputDecoration(labelText: 'Enter OTP'),
-                          ),
-                        ],
+                        TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Phone Number')),
                         const SizedBox(height: 10),
                         TextField(
                           controller: locationController,
@@ -1347,7 +1290,7 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
                             const SizedBox(height: 8),
                             Text(t['description'] ?? ''),
 
-                            // ─── Schedule Info ───────────────────────────
+                            // â”€â”€â”€ Schedule Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                             if (t['scheduledDate'] != null) ...[
                               const SizedBox(height: 12),
                               Container(
@@ -1536,7 +1479,7 @@ class _ImpactDashboardPageState extends State<ImpactDashboardPage> {
                         child: ListTile(
                           leading: const Icon(Icons.check_circle, color: Colors.green),
                           title: Text(t['title'] ?? ''),
-                          subtitle: Text('${t['type']} � ${t['location']}'),
+                          subtitle: Text('${t['type']} · ${t['location']}'),
                           trailing: Chip(label: Text('U:${t['urgency'] ?? 5}', style: const TextStyle(fontSize: 10))),
                         ),
                       )).toList()),

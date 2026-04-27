@@ -8,9 +8,6 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-const pino = require('pino');
-const qrcode = require('qrcode-terminal');
 
 const {
     startOrchestrator,
@@ -40,57 +37,6 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// WhatsApp Bot Setup
-let waSocket;
-
-async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-    
-    waSocket = makeWASocket({
-        auth: state,
-        printQRInTerminal: true,
-        logger: pino({ level: 'silent' })
-    });
-
-    waSocket.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        if (qr) {
-            console.log('Scan the QR code below to authenticate WhatsApp bot:');
-            qrcode.generate(qr, { small: true });
-        }
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== 401;
-            console.log('connection closed, reconnecting ', shouldReconnect);
-            if (shouldReconnect) {
-                connectToWhatsApp();
-            }
-        } else if (connection === 'open') {
-            console.log('WhatsApp Bot connected!');
-        }
-    });
-
-    waSocket.ev.on('creds.update', saveCreds);
-}
-
-connectToWhatsApp();
-
-async function sendWhatsAppMessage(phone, text) {
-    if (!waSocket) return;
-    let formattedPhone = phone.replace(/\D/g, '');
-    if (!formattedPhone.endsWith('@s.whatsapp.net')) {
-        formattedPhone = `${formattedPhone}@s.whatsapp.net`;
-    }
-    try {
-        await waSocket.sendMessage(formattedPhone, { text });
-    } catch (e) {
-        console.error("Failed to send WA message:", e);
-    }
-}
-
-// In-memory OTP store
-const otps = {};
-
-// Create uploads directory if it doesn't exist
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
@@ -117,7 +63,34 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_change_me';
 mongoose.connect(MONGO_URI).then(() => {
     console.log("Connected to MongoDB successfully!");
     // Start the Resource Orchestrator Agent
-    startOrchestrator({ User, Task, Problem }, sendWhatsAppMessage);
+    startOrchestrator({ User, Task, Problem });
+
+    // ── Orchestrator Auto-loops (needs DB ready) ─────────────────────────────
+    const runOrchestratorPredict = async () => {
+        try {
+            console.log("[Orchestrator] Scheduled predictive scan...");
+            const alerts = await runPredictiveAnalysis();
+            if (alerts) console.log(`[Orchestrator] ${alerts.length} spike alert(s) dispatched.`);
+            else console.log("[Orchestrator] No spikes detected.");
+        } catch (err) { console.error("[Orchestrator] Predictive error:", err.message); }
+    };
+
+    const runOrchestratorRescore = async () => {
+        try {
+            const pending = await Task.find({ status: "Pending" });
+            const vols = await User.find({ isVolunteer: true });
+            if (pending.length === 0) return;
+            for (const task of pending)
+                for (const vol of vols)
+                    computePriorityScore(task, vol);
+            console.log(`[Orchestrator] Re-scored ${pending.length} task(s) vs ${vols.length} volunteer(s).`);
+        } catch (err) { console.error("[Orchestrator] Re-score error:", err.message); }
+    };
+
+    runOrchestratorPredict(); // run immediately after DB connects
+    setInterval(runOrchestratorPredict, 30 * 60 * 1000); // every 30 min
+    setInterval(runOrchestratorRescore,  5 * 60 * 1000); // every 5 min
+
 }).catch((err) => {
     console.error("MongoDB connection error. Please ensure MongoDB is running or update the URI in server.js:", err.message);
 });
@@ -230,31 +203,10 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-// Send OTP Route
-app.post('/send-otp', async (req, res) => {
-    try {
-        const { phone } = req.body;
-        if (!phone) return res.status(400).json({ error: 'Phone number is required' });
-        
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        otps[phone] = otp;
-        
-        await sendWhatsAppMessage(phone, `Your Weave verification code is: ${otp}`);
-        
-        res.status(200).json({ message: 'OTP sent via WhatsApp successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // Register Route
 app.post('/register', async (req, res) => {
     try {
-        const { email, password, name, dob, phone, location, lat, lng, otp } = req.body;
-        
-        if (!otp || otps[phone] !== otp) {
-            return res.status(400).json({ error: 'Invalid or missing OTP' });
-        }
+        const { email, password, name, dob, phone, location, lat, lng } = req.body;
         
         const existingUser = await User.findOne({ email });
         if (existingUser) {
@@ -265,8 +217,6 @@ app.post('/register', async (req, res) => {
 
         const user = new User({ email, password: hashedPassword, name, dob, phone, location, lat, lng, isVolunteer: false });
         await user.save();
-        
-        delete otps[phone]; // cleanup OTP
         
         const token = jwt.sign({ email: user.email, id: user._id }, JWT_SECRET);
         
@@ -520,11 +470,7 @@ app.post('/tasks', async (req, res) => {
         
         await task.save();
         
-        // Notify volunteers
-        for (const v of assignedVolunteers) {
-            sendWhatsAppMessage(v.phone, `Hello ${v.name}, a new task "${title}" in ${location} has been assigned to you! Please check your Weave app.`);
-        }
-        
+                
         res.status(201).json({ message: 'Task created and assigned successfully', task });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -564,10 +510,7 @@ app.post('/tasks/:id/respond', authenticateToken, async (req, res) => {
                 ? `Scheduled: ${new Date(task.scheduledDate).toDateString()}${task.scheduledTime ? ' at ' + task.scheduledTime : ''}`
                 : 'No schedule set yet — check with your NGO coordinator';
 
-            sendWhatsAppMessage(
-                volunteer.phone,
-                `✅ You have ACCEPTED the task "${task.title}" in ${task.location}.\n${scheduleStr}\n\n📅 Add to your calendar: ${addToCalendarUrl}`
-            );
+            
         } else if (response === 'reject') {
             task.assignedVolunteers[assignmentIndex].status = 'Rejected';
             task.rejectedBy.push(email);
@@ -598,7 +541,7 @@ app.post('/tasks/:id/respond', authenticateToken, async (req, res) => {
                     status: 'Pending'
                 });
                 
-                sendWhatsAppMessage(nextNearest.v.phone, `Hello ${nextNearest.v.name}, a new task "${task.title}" in ${task.location} has been assigned to you! Please check your Weave app.`);
+                
             }
         }
         
@@ -615,7 +558,12 @@ app.post('/tasks/:id/respond', authenticateToken, async (req, res) => {
 // Get Tasks Route
 app.get('/tasks', async (req, res) => {
     try {
-        const tasks = await Task.find().sort({ createdAt: -1 });
+        let tasks = await Task.find().sort({ createdAt: -1 });
+        tasks.sort((a, b) => {
+            if (a.status === 'Completed' && b.status !== 'Completed') return 1;
+            if (a.status !== 'Completed' && b.status === 'Completed') return -1;
+            return 0;
+        });
         res.status(200).json(tasks);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -626,7 +574,12 @@ app.get('/tasks', async (req, res) => {
 app.get('/my-tasks', authenticateToken, async (req, res) => {
     try {
         const email = req.user.email;
-        const tasks = await Task.find({ 'assignedVolunteers.email': email }).sort({ createdAt: -1 });
+        let tasks = await Task.find({ 'assignedVolunteers.email': email }).sort({ createdAt: -1 });
+        tasks.sort((a, b) => {
+            if (a.status === 'Completed' && b.status !== 'Completed') return 1;
+            if (a.status !== 'Completed' && b.status === 'Completed') return -1;
+            return 0;
+        });
         res.status(200).json(tasks);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -719,17 +672,12 @@ app.get('/orchestrator/pulse', async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`Backend server running on http://localhost:${PORT}`);
-});
-
 // ============================================================
 // IMPACT CORRESPONDENT AGENT ROUTES
 // ============================================================
 
 // PATCH /tasks/:id/complete — Mark a task complete, generate narrative + award badges
-app.patch('/tasks/:id/complete', authenticateToken, async (req, res) => {
+app.patch('/tasks/:id/complete', async (req, res) => {
     try {
         const task = await Task.findById(req.params.id);
         if (!task) return res.status(404).json({ error: 'Task not found' });
@@ -758,10 +706,7 @@ app.patch('/tasks/:id/complete', authenticateToken, async (req, res) => {
             // WhatsApp notify newly earned badges
             if (result.newlyAwarded.length > 0) {
                 const badgeList = result.newlyAwarded.map(b => `${b.emoji} ${b.name}`).join(', ');
-                sendWhatsAppMessage(
-                    vol.phone,
-                    `🎉 Congratulations ${vol.name}! You just earned new badge(s) on Weave: ${badgeList}. Keep up the amazing work!`
-                );
+                
             }
         }
 
@@ -814,17 +759,9 @@ app.get('/my-impact', authenticateToken, async (req, res) => {
     }
 });
 
-// POST /impact/report — Generate + email a stakeholder report
-app.post('/impact/report', async (req, res) => {
-    try {
-        const { ngoName, recipientEmail, reportingStandard } = req.body;
-        const result = await generateStakeholderReport({ ngoName, recipientEmail, reportingStandard });
-        res.status(200).json({
-            message: recipientEmail ? `Report generated and emailed to ${recipientEmail}` : 'Report generated',
-            reportText: result.reportText,
-            stats: { completedTasks: result.completedTasks, totalVols: result.totalVols }
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+    console.log(`Backend server running on http://localhost:${PORT}`);
 });
+
+
