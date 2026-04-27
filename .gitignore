@@ -1,0 +1,35 @@
+# ── Node / Backend ──────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+!.env.example
+auth_info_baileys/
+
+# ── Next.js / Web ────────────────────────────────────────────────────
+.next/
+out/
+dist/
+build/
+
+# ── Flutter / Dart ───────────────────────────────────────────────────
+weave_app/.dart_tool/
+weave_app/.flutter-plugins
+weave_app/.flutter-plugins-dependencies
+weave_app/build/
+weave_app/.packages
+*.g.dart
+
+# ── OS / Editor ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.user
+
+# ── Misc ─────────────────────────────────────────────────────────────
+*.log
+coverage/
