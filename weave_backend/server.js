@@ -8,11 +8,35 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+
+const {
+    startOrchestrator,
+    resolveConflict,
+    rankVolunteersForTask,
+    runPredictiveAnalysis,
+    computePriorityScore,
+    OrchestratorLog
+} = require('./orchestrator');
+
+const {
+    createTaskCalendarEvent,
+    buildAddToCalendarUrl,
+    deleteTaskCalendarEvent
+} = require('./calendar');
+
+const {
+    generateImpactNarrative,
+    checkAndAwardBadges,
+    generateStakeholderReport,
+    BADGE_DEFINITIONS,
+    ImpactStory,
+    VolunteerBadge
+} = require('./impact_agent');
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Create uploads directory if it doesn't exist
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
@@ -38,6 +62,35 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_change_me';
 
 mongoose.connect(MONGO_URI).then(() => {
     console.log("Connected to MongoDB successfully!");
+    // Start the Resource Orchestrator Agent
+    startOrchestrator({ User, Task, Problem });
+
+    // ── Orchestrator Auto-loops (needs DB ready) ─────────────────────────────
+    const runOrchestratorPredict = async () => {
+        try {
+            console.log("[Orchestrator] Scheduled predictive scan...");
+            const alerts = await runPredictiveAnalysis();
+            if (alerts) console.log(`[Orchestrator] ${alerts.length} spike alert(s) dispatched.`);
+            else console.log("[Orchestrator] No spikes detected.");
+        } catch (err) { console.error("[Orchestrator] Predictive error:", err.message); }
+    };
+
+    const runOrchestratorRescore = async () => {
+        try {
+            const pending = await Task.find({ status: "Pending" });
+            const vols = await User.find({ isVolunteer: true });
+            if (pending.length === 0) return;
+            for (const task of pending)
+                for (const vol of vols)
+                    computePriorityScore(task, vol);
+            console.log(`[Orchestrator] Re-scored ${pending.length} task(s) vs ${vols.length} volunteer(s).`);
+        } catch (err) { console.error("[Orchestrator] Re-score error:", err.message); }
+    };
+
+    runOrchestratorPredict(); // run immediately after DB connects
+    setInterval(runOrchestratorPredict, 30 * 60 * 1000); // every 30 min
+    setInterval(runOrchestratorRescore,  5 * 60 * 1000); // every 5 min
+
 }).catch((err) => {
     console.error("MongoDB connection error. Please ensure MongoDB is running or update the URI in server.js:", err.message);
 });
@@ -50,6 +103,9 @@ const userSchema = new mongoose.Schema({
     dob: { type: String, required: true },
     phone: { type: String, required: true },
     location: { type: String, required: true },
+    lat: { type: Number },
+    lng: { type: Number },
+    skills: [{ type: String }], // e.g. ['Medical', 'Water', 'Safety']
     isVolunteer: { type: Boolean, default: false }
 });
 
@@ -88,6 +144,52 @@ const surveyResponseSchema = new mongoose.Schema({
 
 const SurveyResponse = mongoose.model('SurveyResponse', surveyResponseSchema);
 
+// Task Schema
+const taskSchema = new mongoose.Schema({
+    title: { type: String, required: true },
+    type: { type: String, required: true },
+    description: { type: String, required: true },
+    location: { type: String, required: true },
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
+    urgency: { type: Number, default: 5, min: 1, max: 10 },
+    requiredSkills: [{ type: String }],
+    scheduledDate: { type: Date },            // date of the task
+    scheduledTime: { type: String },          // e.g. '09:00'
+    volunteersNeeded: { type: Number, default: 1 },
+    assignedVolunteers: [{
+        email: { type: String },
+        name: { type: String },
+        phone: { type: String },
+        status: { type: String, default: 'Pending' }, // Pending, Accepted, Rejected
+        calendarEventId: { type: String }             // Google Calendar event ID
+    }],
+    rejectedBy: [{ type: String }],
+    status: { type: String, default: 'Pending' },
+    completedNarrative: { type: String },   // AI-generated impact story on completion
+    completedAt: { type: Date },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const Task = mongoose.model('Task', taskSchema);
+
+// Haversine distance helper
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in km
+}
+
+function deg2rad(deg) {
+    return deg * (Math.PI / 180);
+}
+
 // Middleware to authenticate JWT
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -104,7 +206,7 @@ const authenticateToken = (req, res, next) => {
 // Register Route
 app.post('/register', async (req, res) => {
     try {
-        const { email, password, name, dob, phone, location } = req.body;
+        const { email, password, name, dob, phone, location, lat, lng } = req.body;
         
         const existingUser = await User.findOne({ email });
         if (existingUser) {
@@ -113,7 +215,7 @@ app.post('/register', async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const user = new User({ email, password: hashedPassword, name, dob, phone, location, isVolunteer: false });
+        const user = new User({ email, password: hashedPassword, name, dob, phone, location, lat, lng, isVolunteer: false });
         await user.save();
         
         const token = jwt.sign({ email: user.email, id: user._id }, JWT_SECRET);
@@ -159,6 +261,8 @@ app.get('/profile', authenticateToken, async (req, res) => {
             dob: user.dob,
             phone: user.phone,
             location: user.location,
+            lat: user.lat,
+            lng: user.lng,
             isVolunteer: user.isVolunteer
         });
     } catch (err) {
@@ -283,7 +387,381 @@ app.get('/surveys/:id/responses', async (req, res) => {
     }
 });
 
+// Get Volunteer Stats Route
+app.get('/volunteers/stats', async (req, res) => {
+    try {
+        const totalVolunteers = await User.countDocuments({ isVolunteer: true });
+        const totalUsers = await User.countDocuments();
+        res.status(200).json({ totalVolunteers, totalUsers });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Volunteers Route
+app.get('/volunteers', async (req, res) => {
+    try {
+        const volunteers = await User.find({ isVolunteer: true }, 'name email location lat lng');
+        res.status(200).json(volunteers);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create Task Route (Auto-assigns to nearest N volunteers using geocoding)
+app.post('/tasks', async (req, res) => {
+    try {
+        const { title, type, description, location, volunteersNeeded = 1, scheduledDate, scheduledTime } = req.body;
+        
+        let lat = 0, lng = 0;
+        try {
+            const geocodeRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`, {
+                headers: { 'User-Agent': 'WeaveApp/1.0' }
+            });
+            const geocodeData = await geocodeRes.json();
+            if (geocodeData && geocodeData.length > 0) {
+                lat = parseFloat(geocodeData[0].lat);
+                lng = parseFloat(geocodeData[0].lon);
+            } else {
+                return res.status(400).json({ error: 'Could not find location coordinates for the given city' });
+            }
+        } catch (e) {
+            return res.status(500).json({ error: 'Geocoding failed' });
+        }
+
+        // Find all volunteers with location
+        const volunteers = await User.find({ isVolunteer: true, lat: { $ne: null }, lng: { $ne: null } });
+        
+        let assignedVolunteers = [];
+        
+        if (volunteers.length > 0) {
+            const volunteersWithDist = volunteers.map(v => ({
+                v,
+                dist: getDistanceFromLatLonInKm(lat, lng, v.lat, v.lng)
+            }));
+            
+            volunteersWithDist.sort((a, b) => a.dist - b.dist);
+            
+            const topN = volunteersWithDist.slice(0, volunteersNeeded);
+            assignedVolunteers = topN.map(item => ({
+                email: item.v.email,
+                name: item.v.name,
+                phone: item.v.phone,
+                status: 'Pending'
+            }));
+        }
+        
+        let status = assignedVolunteers.length > 0 ? 'Assigned' : 'Pending';
+        
+        const task = new Task({
+            title,
+            type,
+            description,
+            location,
+            lat,
+            lng,
+            volunteersNeeded,
+            scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
+            scheduledTime: scheduledTime || undefined,
+            assignedVolunteers,
+            rejectedBy: [],
+            status
+        });
+        
+        await task.save();
+        
+                
+        res.status(201).json({ message: 'Task created and assigned successfully', task });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Volunteer respond to task
+app.post('/tasks/:id/respond', authenticateToken, async (req, res) => {
+    try {
+        const { response } = req.body; // 'accept' or 'reject'
+        const taskId = req.params.id;
+        const email = req.user.email;
+        
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        
+        const assignmentIndex = task.assignedVolunteers.findIndex(v => v.email === email);
+        if (assignmentIndex === -1) {
+            return res.status(403).json({ error: 'You are not assigned to this task' });
+        }
+        
+        if (response === 'accept') {
+            task.assignedVolunteers[assignmentIndex].status = 'Accepted';
+
+            // Create Google Calendar event
+            const volunteer = task.assignedVolunteers[assignmentIndex];
+            const calResult = await createTaskCalendarEvent(task, { name: volunteer.name, email: volunteer.email });
+            if (calResult) {
+                task.assignedVolunteers[assignmentIndex].calendarEventId = calResult.eventId;
+            }
+
+            // Build an "Add to Calendar" URL for the volunteer
+            const addToCalendarUrl = buildAddToCalendarUrl(task);
+
+            // Notify via WhatsApp with schedule info
+            const scheduleStr = task.scheduledDate
+                ? `Scheduled: ${new Date(task.scheduledDate).toDateString()}${task.scheduledTime ? ' at ' + task.scheduledTime : ''}`
+                : 'No schedule set yet — check with your NGO coordinator';
+
+            
+        } else if (response === 'reject') {
+            task.assignedVolunteers[assignmentIndex].status = 'Rejected';
+            task.rejectedBy.push(email);
+            
+            // Find next nearest volunteer
+            const assignedEmails = task.assignedVolunteers.map(v => v.email);
+            const excludedEmails = [...assignedEmails, ...task.rejectedBy];
+            
+            const availableVolunteers = await User.find({ 
+                isVolunteer: true, 
+                lat: { $ne: null }, 
+                lng: { $ne: null },
+                email: { $nin: excludedEmails }
+            });
+            
+            if (availableVolunteers.length > 0) {
+                const volunteersWithDist = availableVolunteers.map(v => ({
+                    v,
+                    dist: getDistanceFromLatLonInKm(task.lat, task.lng, v.lat, v.lng)
+                }));
+                volunteersWithDist.sort((a, b) => a.dist - b.dist);
+                
+                const nextNearest = volunteersWithDist[0];
+                task.assignedVolunteers.push({
+                    email: nextNearest.v.email,
+                    name: nextNearest.v.name,
+                    phone: nextNearest.v.phone,
+                    status: 'Pending'
+                });
+                
+                
+            }
+        }
+        
+        await task.save();
+
+        // Build addToCalendarUrl for the response payload
+        const addToCalendarUrl = buildAddToCalendarUrl(task);
+        res.status(200).json({ message: `Task ${response}ed successfully`, task, addToCalendarUrl });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Tasks Route
+app.get('/tasks', async (req, res) => {
+    try {
+        let tasks = await Task.find().sort({ createdAt: -1 });
+        tasks.sort((a, b) => {
+            if (a.status === 'Completed' && b.status !== 'Completed') return 1;
+            if (a.status !== 'Completed' && b.status === 'Completed') return -1;
+            return 0;
+        });
+        res.status(200).json(tasks);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get Tasks for a Specific Volunteer Route
+app.get('/my-tasks', authenticateToken, async (req, res) => {
+    try {
+        const email = req.user.email;
+        let tasks = await Task.find({ 'assignedVolunteers.email': email }).sort({ createdAt: -1 });
+        tasks.sort((a, b) => {
+            if (a.status === 'Completed' && b.status !== 'Completed') return 1;
+            if (a.status !== 'Completed' && b.status === 'Completed') return -1;
+            return 0;
+        });
+        res.status(200).json(tasks);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// =========================================================
+// RESOURCE ORCHESTRATOR AGENT ROUTES
+// =========================================================
+
+// GET /orchestrator/logs — Retrieve all agent decisions
+app.get('/orchestrator/logs', async (req, res) => {
+    try {
+        const logs = await OrchestratorLog.find().sort({ createdAt: -1 }).limit(100);
+        res.status(200).json(logs);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /orchestrator/conflict — Resolve a volunteer double-booking conflict
+app.post('/orchestrator/conflict', async (req, res) => {
+    try {
+        const { volunteerEmail, taskAId, taskBId } = req.body;
+        const volunteer = await User.findOne({ email: volunteerEmail });
+        const taskA = await Task.findById(taskAId);
+        const taskB = await Task.findById(taskBId);
+
+        if (!volunteer || !taskA || !taskB) {
+            return res.status(404).json({ error: 'Volunteer or tasks not found' });
+        }
+
+        const result = await resolveConflict(volunteer, taskA, taskB);
+        res.status(200).json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /orchestrator/rank/:taskId — Get priority-ranked volunteers for a task
+app.get('/orchestrator/rank/:taskId', async (req, res) => {
+    try {
+        const task = await Task.findById(req.params.taskId);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+
+        const ranked = await rankVolunteersForTask(task);
+        res.status(200).json(ranked.slice(0, 10).map(r => ({
+            email: r.volunteer.email,
+            name: r.volunteer.name,
+            score: parseFloat(r.score.toFixed(2)),
+            distanceKm: parseFloat(r.distance.toFixed(1)),
+            skills: r.volunteer.skills || []
+        })));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /orchestrator/predict — Manually trigger predictive analysis
+app.post('/orchestrator/predict', async (req, res) => {
+    try {
+        const alerts = await runPredictiveAnalysis();
+        if (!alerts) return res.status(200).json({ message: 'No significant spikes detected.' });
+        res.status(200).json({ alerts });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /orchestrator/pulse — Live snapshot of the system state
+app.get('/orchestrator/pulse', async (req, res) => {
+    try {
+        const [totalVolunteers, pendingTasks, assignedTasks, recentLogs, recentProblems] = await Promise.all([
+            User.countDocuments({ isVolunteer: true }),
+            Task.countDocuments({ status: 'Pending' }),
+            Task.countDocuments({ status: 'Assigned' }),
+            OrchestratorLog.find().sort({ createdAt: -1 }).limit(5),
+            Problem.countDocuments({ createdAt: { $gte: new Date(Date.now() - 24 * 3600000) } })
+        ]);
+
+        res.status(200).json({
+            volunteers: totalVolunteers,
+            pendingTasks,
+            assignedTasks,
+            problemsLast24h: recentProblems,
+            recentDecisions: recentLogs
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ============================================================
+// IMPACT CORRESPONDENT AGENT ROUTES
+// ============================================================
+
+// PATCH /tasks/:id/complete — Mark a task complete, generate narrative + award badges
+app.patch('/tasks/:id/complete', async (req, res) => {
+    try {
+        const task = await Task.findById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+
+        task.status = 'Completed';
+        task.completedAt = new Date();
+        await task.save();
+
+        // Generate impact narrative (non-blocking — respond fast)
+        generateImpactNarrative(task).then(story => {
+            if (story) {
+                Task.findByIdAndUpdate(task._id, { completedNarrative: story.narrative }).exec();
+            }
+        }).catch(console.error);
+
+        // Award badges to every accepted volunteer
+        const acceptedVols = task.assignedVolunteers.filter(v => v.status === 'Accepted');
+        const badgeResults = [];
+        for (const vol of acceptedVols) {
+            const result = await checkAndAwardBadges(vol.email, task);
+            badgeResults.push({
+                email: vol.email,
+                newBadges: result.newlyAwarded.map(b => ({ id: b.id, name: b.name, emoji: b.emoji }))
+            });
+
+            // WhatsApp notify newly earned badges
+            if (result.newlyAwarded.length > 0) {
+                const badgeList = result.newlyAwarded.map(b => `${b.emoji} ${b.name}`).join(', ');
+                
+            }
+        }
+
+        res.status(200).json({ message: 'Task completed', badgeResults });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /impact/stories — Public impact feed
+app.get('/impact/stories', async (req, res) => {
+    try {
+        const stories = await ImpactStory.find().sort({ createdAt: -1 }).limit(20);
+        res.status(200).json(stories);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /impact/badges — All badge definitions
+app.get('/impact/badges', (req, res) => {
+    res.status(200).json(BADGE_DEFINITIONS.map(b => ({
+        id: b.id, name: b.name, emoji: b.emoji,
+        description: b.description, color: b.color
+    })));
+});
+
+// GET /my-impact — Volunteer's own stats + badges
+app.get('/my-impact', authenticateToken, async (req, res) => {
+    try {
+        const email = req.user.email;
+        const record = await VolunteerBadge.findOne({ email });
+        const completedTasks = await Task.find({
+            'assignedVolunteers': { $elemMatch: { email, status: 'Accepted' } },
+            status: 'Completed'
+        }).select('title type location urgency completedAt').sort({ completedAt: -1 });
+
+        const badgesWithDetails = (record?.badges || []).map(b => {
+            const def = BADGE_DEFINITIONS.find(d => d.id === b.badgeId);
+            return def ? { ...def, earnedAt: b.earnedAt } : null;
+        }).filter(Boolean);
+
+        res.status(200).json({
+            stats: record?.stats || { totalCompleted: 0, impactScore: 0, byType: {}, highUrgencyCompleted: 0 },
+            badges: badgesWithDetails,
+            completedTasks
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
 });
+
+
