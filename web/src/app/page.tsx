@@ -1,7 +1,7 @@
-"use strict";
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Users, 
@@ -17,9 +17,7 @@ import {
   MessageSquare,
   Bot,
   Send,
-  Loader2,
   CheckCircle2,
-  Globe,
   Heart,
   Target,
   Star,
@@ -27,6 +25,10 @@ import {
   Settings,
   Pentagon as PentagonIcon
 } from "lucide-react";
+
+const HeatmapView = dynamic(() => import("./HeatmapView"), { ssr: false });
+const NGONetwork  = dynamic(() => import("./NGONetwork"),  { ssr: false });
+const VolunteersView = dynamic(() => import("./VolunteersView"), { ssr: false });
 
 // --- Custom Icons ---
 
@@ -250,27 +252,6 @@ function ThreadLines() {
 
 // --- View Stubs ---
 
-function VolunteerStub() {
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
-        {[
-          { label: "Active Threads", count: "124", color: "text-teal-400" },
-          { label: "Open Callings", count: "12", color: "text-[#D4AF37]" },
-        ].map(s => (
-          <div key={s.label} className="bg-white/60 border border-[#4a3e3e]/5 p-5 rounded-[1.5rem] backdrop-blur-md shadow-sm">
-            <p className="text-[9px] uppercase font-black text-[#4a3e3e]/40 tracking-[0.2em]">{s.label}</p>
-            <p className={`text-2xl font-black ${s.color}`}>{s.count}</p>
-          </div>
-        ))}
-      </div>
-      <button className="w-full py-5 bg-[#4a3e3e] text-white font-black uppercase tracking-[0.2em] rounded-[2rem] hover:bg-[#4a3e3e]/90 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-2xl shadow-[#4a3e3e]/20">
-        Recruit New Volunteers
-      </button>
-    </div>
-  );
-}
-
 function ProjectStub() {
   return (
     <div className="space-y-4">
@@ -293,6 +274,12 @@ function ProjectStub() {
   );
 }
 
+// --- Community Fabric (Leaflet Heatmap) ---
+
+function CommunityFabric() {
+  return <HeatmapView />;
+}
+
 // --- Survey Loom Components ---
 
 function SurveyLoom() {
@@ -305,17 +292,27 @@ function SurveyLoom() {
   const [selectedSurvey, setSelectedSurvey] = useState<any>(null);
   const [surveyResponses, setSurveyResponses] = useState<any[]>([]);
 
+  const API_URL = "http://localhost:5000";
+
   useEffect(() => {
     if (view === "dashboard") {
-      fetch("http://127.0.0.1:5000/surveys")
+      fetch(`${API_URL}/surveys`)
         .then(res => res.json())
-        .then(data => setActiveSurveys(data))
+        .then(data => {
+          if (Array.isArray(data)) {
+            setActiveSurveys(data);
+          }
+        })
         .catch(err => console.error("Error fetching surveys:", err));
     }
     if (view === "analytics" && selectedSurvey) {
-      fetch(`http://127.0.0.1:5000/surveys/${selectedSurvey._id}/responses`)
+      fetch(`${API_URL}/surveys/${selectedSurvey._id}/responses`)
         .then(res => res.json())
-        .then(data => setSurveyResponses(data))
+        .then(data => {
+          if (Array.isArray(data)) {
+            setSurveyResponses(data);
+          }
+        })
         .catch(err => console.error("Error fetching responses:", err));
     }
   }, [view, selectedSurvey]);
@@ -324,10 +321,17 @@ function SurveyLoom() {
     if (!title.trim() || !description.trim()) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch("http://127.0.0.1:5000/surveys", {
+      const res = await fetch(`${API_URL}/surveys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description, questions })
+        body: JSON.stringify({ 
+          title, 
+          description, 
+          questions: questions.map(q => ({
+            ...q,
+            type: q.type === "Short Answer" ? "text" : q.type // Match backend expectations if needed
+          }))
+        })
       });
       if (res.ok) {
         setView("dashboard");
@@ -366,7 +370,7 @@ function SurveyLoom() {
                 <div className="space-y-2 mt-4">
                   {resp.responses.map((r: any, j: number) => (
                     <div key={j} className="bg-[#fcf8f6] p-4 rounded-xl border border-[#4a3e3e]/5">
-                      <p className="text-sm font-bold text-[#4a3e3e]/60">{r.questionText}</p>
+                      <p className="text-sm font-bold text-[#4a3e3e]/60">{r.questionText || `Question ${r.questionId}`}</p>
                       <p className="text-lg font-black text-[#4a3e3e] mt-1">{r.answer}</p>
                     </div>
                   ))}
@@ -705,25 +709,11 @@ export default function WeaveHubDashboard() {
                 </div>
 
                 <div className="min-h-[300px] relative">
-                  {activeSection === "Volunteers" && <VolunteerStub />}
+                  {activeSection === "Volunteers" && <VolunteersView />}
                   {activeSection === "Impact Projects" && <ProjectStub />}
                   {activeSection === "Survey Loom" && <SurveyLoom />}
-                  {activeSection === "NGO Network" && (
-                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-                      <div className="p-8 rounded-full bg-[#2DD4BF]/5 border-2 border-[#2DD4BF]/20">
-                        <Globe size={80} className="text-[#2DD4BF]/40" />
-                      </div>
-                      <p className="text-[#4a3e3e]/40 font-black uppercase tracking-[0.4em] text-sm">Inter-community fabric active</p>
-                    </div>
-                  )}
-                  {activeSection === "Community Fabric" && (
-                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-                      <div className="p-8 rounded-full bg-red-500/5 border-2 border-red-500/20">
-                        <Heart size={80} className="text-red-500/30" />
-                      </div>
-                      <p className="text-[#4a3e3e]/40 font-black uppercase tracking-[0.4em] text-sm">Mapping the heartbeat of change</p>
-                    </div>
-                  )}
+                  {activeSection === "NGO Network" && <NGONetwork />}
+                  {activeSection === "Community Fabric" && <CommunityFabric />}
                 </div>
               </div>
               
