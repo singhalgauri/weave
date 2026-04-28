@@ -126,20 +126,26 @@ export default function HeatmapView() {
         if (probRes && probRes.ok && probRes.headers.get("content-type")?.includes("application/json")) {
           const data = await probRes.json();
           if (Array.isArray(data) && data.length > 0) {
-            const pts = data.filter((p: any) => p.lat && p.lng).map((p: any) => ({ lat: parseFloat(p.lat), lng: parseFloat(p.lng), intensity: 1.0 }));
+            // Only show VERIFIED reports on the heatmap
+            const verifiedReports = data.filter((p: any) => p.status === 'Verified' && p.lat && p.lng);
+            
+            const pts = verifiedReports.map((p: any) => ({ 
+              lat: parseFloat(p.lat), 
+              lng: parseFloat(p.lng), 
+              intensity: 1.0 
+            }));
+            
             realPts = [...realPts, ...pts];
-            hasRealData = true;
+            hasRealData = pts.length > 0;
 
-            // Add labels for reports
-            data.forEach((p: any) => {
-              if (p.lat && p.lng) {
-                const icon = L.divIcon({
-                  className: "",
-                  html: `<div style="background: rgba(239,140,74,0.9); border: 1px solid rgba(74,62,62,0.1); border-radius: 999px; padding: 2px 6px; font-size: 9px; font-weight: bold; color: white; white-space: nowrap;">🚨 ${p.title}</div>`,
-                  iconAnchor: [20, 10],
-                });
-                L.marker([p.lat, p.lng], { icon }).addTo(map);
-              }
+            // Add labels only for verified reports
+            verifiedReports.forEach((p: any) => {
+              const icon = L.divIcon({
+                className: "",
+                html: `<div style="background: rgba(239,140,74,0.9); border: 1px solid rgba(74,62,62,0.1); border-radius: 999px; padding: 2px 6px; font-size: 9px; font-weight: bold; color: white; white-space: nowrap;">✅ ${p.title}</div>`,
+                iconAnchor: [20, 10],
+              });
+              L.marker([p.lat, p.lng], { icon }).addTo(map);
             });
           }
         }
