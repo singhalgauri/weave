@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
@@ -1286,20 +1286,28 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Filter out verified/rejected reports from the list
+    final activeTasks = tasks.where((t) {
+      if (t['isReport'] == true) {
+        return t['status'] != 'Verified' && t['status'] != 'Rejected';
+      }
+      return true;
+    }).toList();
+
     return Scaffold(
       appBar: AppBar(title: const Text('My Assigned Tasks')),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : tasks.isEmpty
+          : activeTasks.isEmpty
           ? const Center(child: Text('No tasks assigned to you.'))
           : ListView.builder(
-              itemCount: tasks.length,
+              itemCount: activeTasks.length,
               itemBuilder: (context, index) {
-                final t = tasks[index];
+                final t = activeTasks[index];
                 final String taskId = t['_id'];
                 final List<dynamic> assigned = t['assignedVolunteers'] ?? [];
                 final myAssignment = assigned.firstWhere(
-                  (v) => v['email'] == globalUserEmail,
+                  (v) => v['email'].toString().toLowerCase() == globalUserEmail?.toLowerCase(),
                   orElse: () => null,
                 );
                 final String status = myAssignment != null
@@ -1313,21 +1321,61 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          t['title'] ?? 'Untitled Task',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                t['title'] ?? 'Untitled Task',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            if (t['isReport'] == true)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'REPORT',
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 8),
                         Text('Type: ${t['type']}'),
                         Text('Location: ${t['location']}'),
                         const SizedBox(height: 8),
                         Text(t['description'] ?? ''),
+                        if (t['imageUrl'] != null) ...[
+                          const SizedBox(height: 12),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              t['imageUrl'].startsWith('http')
+                                  ? t['imageUrl']
+                                  : '$backendBaseUrl${t['imageUrl']}',
+                              height: 150,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ],
 
-                        // â”€â”€â”€ Schedule Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                        if (t['scheduledDate'] != null) ...[
+                        // â”€â”€â”€ Schedule Info (Only for regular tasks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                        if (t['isReport'] != true && t['scheduledDate'] != null) ...[
                           const SizedBox(height: 12),
                           Container(
                             padding: const EdgeInsets.all(10),
@@ -1416,7 +1464,8 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
                           children: [
                             Chip(
                               label: Text(status),
-                              backgroundColor: status == 'Accepted'
+                              backgroundColor: status == 'Accepted' ||
+                                      status == 'Verified'
                                   ? Colors.green[100]
                                   : status == 'Rejected'
                                   ? Colors.red[100]
@@ -1426,8 +1475,9 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
                               Row(
                                 children: [
                                   TextButton(
-                                    onPressed: () =>
-                                        respondToTask(taskId, 'reject'),
+                                    onPressed: () => t['isReport'] == true
+                                        ? respondToReport(taskId, 'reject')
+                                        : respondToTask(taskId, 'reject'),
                                     child: const Text(
                                       'Reject',
                                       style: TextStyle(color: Colors.red),
@@ -1435,8 +1485,9 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
                                   ),
                                   const SizedBox(width: 8),
                                   ElevatedButton(
-                                    onPressed: () =>
-                                        respondToTask(taskId, 'accept'),
+                                    onPressed: () => t['isReport'] == true
+                                        ? respondToReport(taskId, 'accept')
+                                        : respondToTask(taskId, 'accept'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.green,
                                     ),
@@ -1447,6 +1498,17 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
                                   ),
                                 ],
                               ),
+                            if (t['isReport'] == true && status == 'Accepted')
+                              ElevatedButton(
+                                onPressed: () => showVerifyDialog(taskId),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                ),
+                                child: const Text(
+                                  'Verify Report',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ),
                           ],
                         ),
                       ],
@@ -1456,6 +1518,72 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
               },
             ),
     );
+  }
+
+  Future<void> respondToReport(String reportId, String response) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$backendBaseUrl/problems/$reportId/respond'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $globalJwtToken',
+        },
+        body: jsonEncode({'response': response}),
+      );
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Report ${response}ed successfully')),
+        );
+        fetchTasks();
+      }
+    } catch (e) {
+      //
+    }
+  }
+
+  void showVerifyDialog(String reportId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Verify Report'),
+        content: const Text(
+          'Is this reported problem genuine and accurately described?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => submitVerification(reportId, false),
+            child: const Text('False Report', style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton(
+            onPressed: () => submitVerification(reportId, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Verify True', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> submitVerification(String reportId, bool isTrue) async {
+    Navigator.pop(context);
+    try {
+      final res = await http.post(
+        Uri.parse('$backendBaseUrl/problems/$reportId/verify'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $globalJwtToken',
+        },
+        body: jsonEncode({'isTrue': isTrue}),
+      );
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Verification submitted')),
+        );
+        fetchTasks();
+      }
+    } catch (e) {
+      //
+    }
   }
 }
 
