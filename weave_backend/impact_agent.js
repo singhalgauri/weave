@@ -131,7 +131,7 @@ const VolunteerBadge = mongoose.model('VolunteerBadge', volunteerBadgeSchema);
 // ─────────────────────────────────────────────────────────────────────────────
 function getModel() {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    return genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -157,6 +157,7 @@ Rules:
 - Estimate a plausible community benefit (e.g., "15 households", "over 200 students")
 - Sound like a news blurb, not a report
 - Do NOT mention volunteer names or internal IDs
+- IMPORTANT: You MUST respond ONLY in English, regardless of the input language.
 `.trim();
 
     try {
@@ -180,6 +181,62 @@ Rules:
     } catch (err) {
         console.error('[ImpactAgent] Narrative generation failed:', err.message);
         return null;
+    }
+}
+
+async function generateProjectDescription(title, type, location) {
+    const prompt = `
+You are an AI assistant for Weave, an NGO coordination platform.
+Please write a short, compelling 2-3 sentence project description for a new social impact project.
+The title of the project is: "${title}".
+The category/type of the project is: "${type}".
+The location is: "${location || 'undisclosed location'}".
+Focus on the positive impact this project will have on the community and inspire volunteers to join.
+IMPORTANT: You MUST respond ONLY in English, regardless of the input language.
+`.trim();
+
+    try {
+        const model = getModel();
+        const result = await model.generateContent(prompt);
+        return result.response.text().trim();
+    } catch (err) {
+        console.error('[ImpactAgent] Project description generation failed:', err.message);
+        return "Join us in making a difference in the community with this impactful project.";
+    }
+}
+
+async function generateReportDetails(title, location) {
+    const prompt = `
+You are an expert AI assistant for Weave, an NGO coordination platform.
+A civilian has reported a community issue or crisis.
+Title of the report: "${title}".
+Location: "${location || 'undisclosed location'}".
+
+Based on the title, please generate:
+1. "description": A highly specific, actionable 2-sentence description of what this exact issue entails, the immediate risks if left unresolved, and how volunteers can help. Make it extremely relevant to the title.
+2. "requiredSkill": The single most critical, specific skill a volunteer must have to address this exact issue (e.g., 'Flood Relief', 'Medical Aid', 'Debris Clearing', 'Search & Rescue', 'Plumbing', etc.). Do NOT just say 'General'.
+
+IMPORTANT: You MUST respond ONLY in English, regardless of the input language.
+Return the response strictly as a JSON object with keys "description" and "requiredSkill". Do not use markdown blocks or any other formatting, just the raw JSON.
+`.trim();
+
+    try {
+        const model = getModel();
+        const result = await model.generateContent(prompt);
+        let text = result.response.text().trim();
+        
+        // Extract JSON robustly
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            return JSON.parse(jsonMatch[0]);
+        }
+        return JSON.parse(text);
+    } catch (err) {
+        console.error('[ImpactAgent] Report details generation failed:', err.message);
+        return {
+            description: "A community issue has been reported that requires attention from our volunteers.",
+            requiredSkill: "General"
+        };
     }
 }
 
@@ -349,6 +406,8 @@ ${reportText}
 // ─────────────────────────────────────────────────────────────────────────────
 module.exports = {
     generateImpactNarrative,
+    generateProjectDescription,
+    generateReportDetails,
     checkAndAwardBadges,
     generateStakeholderReport,
     sendReportEmail,

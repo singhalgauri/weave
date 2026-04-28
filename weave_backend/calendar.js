@@ -164,8 +164,77 @@ async function deleteTaskCalendarEvent(eventId) {
     }
 }
 
+/**
+ * Create a general Google Calendar event for an NGO drive (Task).
+ * 
+ * @param {Object} task         - Mongoose task document
+ * @returns {string|null}       - The Google Calendar event HTML link, or null (or simulated ID)
+ */
+async function createNgoEventForTask(task) {
+    const client = getCalendarClient();
+    if (!client) {
+        // Return a mock event ID to simulate success if credentials aren't set
+        return {
+            eventId: `mock_event_${task._id}`,
+            eventLink: `https://calendar.google.com/calendar/r/eventedit?text=Mock+Event`
+        };
+    }
+
+    const { calendar, calendarId } = client;
+
+    const scheduledDate = task.scheduledDate
+        ? new Date(task.scheduledDate)
+        : new Date(Date.now() + 24 * 60 * 60 * 1000); // default: tomorrow
+
+    let startDateTime;
+    if (task.scheduledTime) {
+        const [hours, minutes] = task.scheduledTime.split(':').map(Number);
+        scheduledDate.setHours(hours, minutes, 0, 0);
+        startDateTime = scheduledDate.toISOString();
+    } else {
+        startDateTime = scheduledDate.toISOString().split('T')[0];
+    }
+
+    const endDateTime = task.scheduledTime
+        ? new Date(new Date(startDateTime).getTime() + 2 * 60 * 60 * 1000).toISOString()
+        : new Date(new Date(startDateTime + 'T00:00:00').getTime() + 24 * 60 * 60 * 1000)
+              .toISOString().split('T')[0];
+
+    const isAllDay = !task.scheduledTime;
+
+    const event = {
+        summary: `[NGO Drive] ${task.title}`,
+        description: `Type: ${task.type}\n\nDescription: ${task.description}\n\nLocation: ${task.location}\nVolunteers Needed: ${task.volunteersNeeded}\n\nThis drive was auto-synced to the central NGO calendar.`,
+        location: task.location,
+        start: isAllDay
+            ? { date: startDateTime }
+            : { dateTime: startDateTime, timeZone: 'Asia/Kolkata' },
+        end: isAllDay
+            ? { date: endDateTime }
+            : { dateTime: endDateTime, timeZone: 'Asia/Kolkata' },
+        colorId: '9' // Blueberry — distinct color for general NGO drives
+    };
+
+    try {
+        const response = await calendar.events.insert({
+            calendarId,
+            resource: event
+        });
+
+        console.log(`[Calendar] NGO Drive Event created: ${response.data.htmlLink}`);
+        return {
+            eventId: response.data.id,
+            eventLink: response.data.htmlLink
+        };
+    } catch (err) {
+        console.error('[Calendar] Failed to create NGO drive event:', err.message);
+        return null;
+    }
+}
+
 module.exports = {
     createTaskCalendarEvent,
     buildAddToCalendarUrl,
-    deleteTaskCalendarEvent
+    deleteTaskCalendarEvent,
+    createNgoEventForTask
 };

@@ -22,11 +22,14 @@ const {
 const {
     createTaskCalendarEvent,
     buildAddToCalendarUrl,
-    deleteTaskCalendarEvent
+    deleteTaskCalendarEvent,
+    createNgoEventForTask
 } = require('./calendar');
 
 const {
     generateImpactNarrative,
+    generateProjectDescription,
+    generateReportDetails,
     checkAndAwardBadges,
     generateStakeholderReport,
     BADGE_DEFINITIONS,
@@ -296,6 +299,7 @@ const taskSchema = new mongoose.Schema({
     }],
     rejectedBy: [{ type: String }],
     status: { type: String, default: 'Pending' },
+    ngoCalendarEventId: { type: String },
     completedNarrative: { type: String },   // AI-generated impact story on completion
     completedAt: { type: Date },
     createdAt: { type: Date, default: Date.now }
@@ -433,6 +437,96 @@ app.get('/volunteers', async (req, res) => {
         }
         
         res.status(200).json(volunteers);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Recruit Volunteer Route
+app.post('/volunteers/recruit', async (req, res) => {
+    try {
+        const { name, email, phone, location, address, aadhaar, skills, interests } = req.body;
+        
+        // Check if user already exists
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            // If user exists but is not a volunteer, upgrade them
+            if (!existingUser.isVolunteer) {
+                existingUser.isVolunteer = true;
+                if (name) existingUser.name = name;
+                if (phone) existingUser.phone = phone;
+                if (location) existingUser.location = location;
+                if (address) existingUser.address = address;
+                if (aadhaar) existingUser.aadhaar = aadhaar;
+                if (skills) existingUser.skills = skills;
+                if (interests) existingUser.interests = interests;
+                await existingUser.save();
+                return res.status(200).json({ message: 'User upgraded to volunteer successfully', volunteer: existingUser });
+            }
+            return res.status(400).json({ error: 'Volunteer with this email already exists' });
+        }
+
+        // Create new volunteer user
+        const hashedPassword = await bcrypt.hash('volunteer123', 10); // Default password
+        const newVolunteer = new User({
+            name,
+            email,
+            password: hashedPassword,
+            phone,
+            location,
+            address,
+            aadhaar,
+            skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map((s: string) => s.trim()) : []),
+            interests: Array.isArray(interests) ? interests : (interests ? interests.split(',').map((i: string) => i.trim()) : []),
+            isVolunteer: true,
+            dob: '1900-01-01' // Default DOB if not provided
+        });
+
+        await newVolunteer.save();
+        res.status(201).json({ message: 'Volunteer recruited successfully', volunteer: newVolunteer });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Generate Project Description Route
+app.post('/generate-project-description', async (req, res) => {
+    try {
+        const { title, type, location } = req.body;
+        const description = await generateProjectDescription(title, type, location);
+        res.status(200).json({ description });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Generate Report Details Route
+app.post('/generate-report-details', async (req, res) => {
+    try {
+        const { title, location } = req.body;
+        const details = await generateReportDetails(title, location);
+        res.status(200).json(details);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Admin Create Problem Route
+app.post('/problems', async (req, res) => {
+    try {
+        const { title, description, location, requiredSkill, lat, lng } = req.body;
+        const problem = new Problem({
+            title,
+            description,
+            location,
+            lat: lat || 0,
+            lng: lng || 0,
+            imageUrl: 'https://via.placeholder.com/150', // placeholder for admin dashboard
+            reportedBy: 'admin@weave.org',
+            requiredSkill
+        });
+        await problem.save();
+        res.status(201).json({ message: 'Problem created successfully', problem });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -669,6 +763,28 @@ app.get('/volunteers/stats', async (req, res) => {
         const totalVolunteers = await User.countDocuments({ isVolunteer: true });
         const totalUsers = await User.countDocuments();
         res.status(200).json({ totalVolunteers, totalUsers });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Sync Drives to NGO Calendar
+app.post('/tasks/sync-calendar', async (req, res) => {
+    try {
+        // Find tasks that haven't been synced to the NGO calendar yet
+        const tasks = await Task.find({ ngoCalendarEventId: { $exists: false } });
+        let syncedCount = 0;
+        
+        for (const task of tasks) {
+            const calResult = await createNgoEventForTask(task);
+            if (calResult) {
+                task.ngoCalendarEventId = calResult.eventId;
+                await task.save();
+                syncedCount++;
+            }
+        }
+        
+        res.status(200).json({ message: `Successfully synced ${syncedCount} drives to the NGO Calendar.`, syncedCount });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1124,6 +1240,75 @@ app.get('/my-impact', authenticateToken, async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
+// ── AI Generation Route ──────────────────────────────────────────────────────
+app.post('/api/generate-content', async (req, res) => {
+    try {
+        const { promptType, title, context } = req.body;
+        
+        if (!process.env.GEMINI_API_KEY) {
+            return res.status(500).json({ error: 'GEMINI_API_KEY is not configured.' });
+        }
+
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        
+        let prompt = '';
+        if (promptType === 'task') {
+            prompt = `Generate a short, engaging description (max 2 sentences) and a list of 2-3 required skills for a volunteering task titled '${title}' of type '${context}'. Return the result STRICTLY as a JSON object with two keys: "description" (string) and "skills" (array of strings). Do not include any markdown formatting or extra text.`;
+        } else if (promptType === 'report') {
+            prompt = `Analyze the civilian problem report titled '${title}' at location '${context}'. Return the result STRICTLY as a JSON object with two keys: "description" (a highly specific, actionable 2-sentence description of the exact issue and why it needs immediate attention) and "skills" (array with 1 string containing the single most critical, specific skill needed, e.g., 'Plumbing', 'Medical Aid', 'Search & Rescue', NOT just 'General'). Do not include any markdown formatting or extra text.`;
+        } else {
+            return res.status(400).json({ error: 'Invalid promptType' });
+        }
+
+        const result = await model.generateContent(prompt);
+        let text = result.response.text();
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        const data = JSON.parse(text);
+        
+        res.status(200).json(data);
+    } catch (err) {
+        console.error('AI Generation Error:', err);
+        res.status(500).json({ error: 'Failed to generate content.' });
+    }
+});
+
+// Admin Create Report Route (No auth/image required)
+app.post('/admin/problems', async (req, res) => {
+    try {
+        const { title, description, location, requiredSkill } = req.body;
+        
+        let lat = 0, lng = 0;
+        try {
+            const geocodeRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`, {
+                headers: { 'User-Agent': 'WeaveApp/1.0' }
+            });
+            const geocodeData = await geocodeRes.json();
+            if (geocodeData && geocodeData.length > 0) {
+                lat = parseFloat(geocodeData[0].lat);
+                lng = parseFloat(geocodeData[0].lon);
+            }
+        } catch (e) {
+            console.error('Geocoding failed for problem:', e);
+        }
+
+        const problem = new Problem({
+            title,
+            description,
+            location,
+            lat,
+            lng,
+            requiredSkill,
+            reportedBy: 'admin@weave.local'
+        });
+
+        await problem.save();
+        res.status(201).json({ message: 'Problem reported successfully', problem });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── Chatbot Route ────────────────────────────────────────────────────────────
 app.post('/chat', async (req, res) => {
     try {
@@ -1134,7 +1319,7 @@ app.post('/chat', async (req, res) => {
         }
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
         const systemPrompt = `You are the "Weave Assistant", an intelligent and helpful AI for the Weave platform. 
 Weave is a platform that connects NGOs, volunteers, and communities.

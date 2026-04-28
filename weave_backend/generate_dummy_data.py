@@ -22,7 +22,7 @@ db = client.get_database("test")
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 # Ensure we use a model that supports JSON response if possible, or we will just parse it
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 # Initialize Faker
 fake = Faker('en_IN')  # Use Indian locale for realistic names and addresses
