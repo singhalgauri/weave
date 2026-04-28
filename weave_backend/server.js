@@ -152,6 +152,7 @@ const problemSchema = new mongoose.Schema({
         name: { type: String },
         phone: { type: String },
     },
+    isVerified: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -939,13 +940,113 @@ app.get('/tasks', async (req, res) => {
 app.get('/my-tasks', authenticateToken, async (req, res) => {
     try {
         const email = req.user.email;
-        let tasks = await Task.find({ 'assignedVolunteers.email': email }).sort({ createdAt: -1 });
-        tasks.sort((a, b) => {
+        const emailRegex = new RegExp(`^${email}$`, 'i');
+        
+        const tasks = await Task.find({ 'assignedVolunteers.email': emailRegex }).sort({ createdAt: -1 });
+        
+        // Debug: Find all problems first
+        const allUserProblems = await Problem.find({ 'assignedVolunteer.email': emailRegex });
+        console.log(`[Backend] /my-tasks for ${email}: Total assigned problems in DB: ${allUserProblems.length}`);
+        allUserProblems.forEach(p => console.log(`[Backend] DB Problem: ${p.title} (Status: ${p.status})`));
+
+        const problems = await Problem.find({ 
+            'assignedVolunteer.email': emailRegex,
+            status: { $nin: ['Verified', 'Rejected'] }
+        }).sort({ createdAt: -1 });
+        
+        console.log(`[Backend] /my-tasks for ${email}: Returning ${problems.length} active problems`);
+        
+        // Format problems to look like tasks with a 'report' tag
+        const reportTasks = problems
+            .filter(p => p.status !== 'Verified' && p.status !== 'Rejected')
+            .map(p => ({
+                _id: p._id,
+                title: p.title,
+                type: 'Report',
+                description: p.description,
+                location: p.location,
+                lat: p.lat,
+                lng: p.lng,
+                status: p.status, // e.g. 'Verified Pending'
+                imageUrl: p.imageUrl,
+                isReport: true,
+                assignedVolunteers: [{
+                    email: p.assignedVolunteer?.email,
+                    name: p.assignedVolunteer?.name,
+                    phone: p.assignedVolunteer?.phone,
+                    status: p.status === 'Verified Pending' ? 'Pending' : (p.status === 'Accepted' ? 'Accepted' : 'Pending')
+                }],
+                createdAt: p.createdAt
+            }));
+
+        let allTasks = [...tasks, ...reportTasks];
+        
+        allTasks.sort((a, b) => {
             if (a.status === 'Completed' && b.status !== 'Completed') return 1;
             if (a.status !== 'Completed' && b.status === 'Completed') return -1;
-            return 0;
+            return new Date(b.createdAt) - new Date(a.createdAt);
         });
-        res.status(200).json(tasks);
+        
+        res.status(200).json(allTasks);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Volunteer respond to problem verification assignment
+app.post('/problems/:id/respond', authenticateToken, async (req, res) => {
+    try {
+        const { response } = req.body; // 'accept' or 'reject'
+        const problemId = req.params.id;
+        const email = req.user.email;
+        
+        const problem = await Problem.findById(problemId);
+        if (!problem) return res.status(404).json({ error: 'Problem not found' });
+        
+        if (problem.assignedVolunteer?.email !== email) {
+            return res.status(403).json({ error: 'You are not assigned to this report' });
+        }
+        
+        if (response === 'accept') {
+            problem.status = 'Accepted';
+        } else if (response === 'reject') {
+            problem.status = 'Pending';
+            problem.assignedVolunteer = undefined;
+        }
+        
+        await problem.save();
+        res.status(200).json({ message: `Report ${response}ed successfully`, problem });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Volunteer verify a problem/report
+app.post('/problems/:id/verify', authenticateToken, async (req, res) => {
+    try {
+        const { isTrue, verificationNotes } = req.body;
+        const problemId = req.params.id;
+        const email = req.user.email;
+        
+        const problem = await Problem.findById(problemId);
+        if (!problem) return res.status(404).json({ error: 'Problem not found' });
+        
+        if (problem.assignedVolunteer?.email !== email) {
+            return res.status(403).json({ error: 'You are not assigned to this report' });
+        }
+
+        if (isTrue) {
+            problem.status = 'Verified';
+            problem.isVerified = true;
+        } else {
+            problem.status = 'Rejected'; // or 'False Report'
+            problem.isVerified = false;
+        }
+        
+        // problem.verificationNotes = verificationNotes; // If we wanted to add this to schema
+        await problem.save();
+        
+        res.status(200).json({ message: 'Report verification submitted', problem });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1098,10 +1199,29 @@ app.get('/my-impact', authenticateToken, async (req, res) => {
     try {
         const email = req.user.email;
         const record = await VolunteerBadge.findOne({ email });
-        const completedTasks = await Task.find({
+        const tasks = await Task.find({
             'assignedVolunteers': { $elemMatch: { email, status: 'Accepted' } },
             status: 'Completed'
         }).select('title type location urgency completedAt').sort({ completedAt: -1 });
+
+        const verifiedReports = await Problem.find({
+            'assignedVolunteer.email': email,
+            status: { $in: ['Verified', 'Rejected'] }
+        }).select('title location status createdAt').sort({ createdAt: -1 });
+
+        // Map reports to look like completed tasks
+        const mappedReports = verifiedReports.map(r => ({
+            title: r.title,
+            type: 'Report',
+            location: r.location,
+            urgency: 5, // Default for reports
+            completedAt: r.createdAt,
+            status: r.status
+        }));
+
+        const allCompleted = [...tasks, ...mappedReports].sort((a, b) => 
+            new Date(b.completedAt) - new Date(a.completedAt)
+        );
 
         const badgesWithDetails = (record?.badges || []).map(b => {
             const def = BADGE_DEFINITIONS.find(d => d.id === b.badgeId);
@@ -1111,7 +1231,7 @@ app.get('/my-impact', authenticateToken, async (req, res) => {
         res.status(200).json({
             stats: record?.stats || { totalCompleted: 0, impactScore: 0, byType: {}, highUrgencyCompleted: 0 },
             badges: badgesWithDetails,
-            completedTasks
+            completedTasks: allCompleted
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
