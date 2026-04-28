@@ -23,7 +23,7 @@ import {
   Star,
   Flower2,
   Settings,
-  Pentagon as PentagonIcon
+  Pentagon as PentagonIcon,
 } from "lucide-react";
 
 const HeatmapView = dynamic(() => import("./HeatmapView"), { ssr: false });
@@ -45,7 +45,7 @@ const Pentagon = ({ size, fill, stroke, strokeWidth, className }: any) => (
 
 // --- Types & Constants ---
 
-type Section = "Volunteers" | "Impact Projects" | "Survey Loom" | "NGO Network" | "Community Fabric" | "Profile";
+type Section = "Volunteers" | "Impact Projects" | "Survey Loom" | "NGO Network" | "Community Fabric";
 
 interface HubPoint {
   section: Section;
@@ -216,7 +216,7 @@ function ThreadLines() {
             filter="url(#softGlow)"
             initial={{ offsetDistance: "0%", opacity: 0 }}
             animate={{ 
-              offsetDistance: "100%", 
+              offsetDistance: ["0%", "100%"], 
               opacity: [0, 1, 0],
               scale: [1, 2, 1]
             }}
@@ -224,9 +224,9 @@ function ThreadLines() {
               duration: 6, 
               repeat: Infinity, 
               delay: i * 1.2,
-              ease: "easeInOut"
+              ease: "linear"
             }}
-            style={{ offsetPath: `path("${path}")` }}
+            style={{ offsetPath: `path('${path}')` } as any}
           />
         </React.Fragment>
       ))}
@@ -252,24 +252,341 @@ function ThreadLines() {
 
 // --- View Stubs ---
 
+
 function ProjectStub() {
-  return (
-    <div className="space-y-4">
-      {["Clean Water Initiative", "Community Schooling", "Livelihood Training"].map((p, i) => (
-        <motion.div 
-          key={p} 
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: i * 0.1 }}
-          className="bg-white/60 border border-[#4a3e3e]/5 p-6 rounded-[2rem] flex items-center justify-between group hover:border-[#4a3e3e]/20 transition-all cursor-pointer backdrop-blur-sm shadow-sm"
-        >
-          <div className="flex items-center space-x-3">
-            <div className="w-2 h-2 rounded-full bg-[#4a3e3e]/20 shadow-inner" />
-            <span className="font-bold text-base text-[#4a3e3e]">{p}</span>
+  const [view, setView] = useState<"dashboard" | "builder">("dashboard");
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Form state
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("Clean Water");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [volunteersNeeded, setVolunteersNeeded] = useState("1");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (view === "dashboard") {
+      fetchTasks();
+    }
+  }, [view]);
+
+  const fetchTasks = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("http://127.0.0.1:5000/tasks");
+      const data = await res.json();
+      setTasks(data);
+    } catch (err) {
+      console.error("Error fetching tasks:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const markTaskFinished = async (id: string) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:5000/tasks/${id}/complete`, {
+        method: "PATCH",
+      });
+      if (res.ok) {
+        fetchTasks();
+      } else {
+        const text = await res.text();
+        console.error("Failed to mark task finished:", res.status, text);
+      }
+    } catch (err) {
+      console.error("Error marking task finished:", err);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!title || !description || !location || !volunteersNeeded) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("http://127.0.0.1:5000/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          title, 
+          type, 
+          description, 
+          location, 
+          volunteersNeeded: parseInt(volunteersNeeded),
+          scheduledDate: scheduledDate || undefined,
+          scheduledTime: scheduledTime || undefined
+        })
+      });
+      if (res.ok) {
+        setView("dashboard");
+        setTitle(""); setDescription(""); setLocation("");
+        setVolunteersNeeded("1"); setScheduledDate(""); setScheduledTime("");
+        fetchTasks();
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || 'Failed to create task');
+      }
+    } catch (err) {
+      console.error("Error creating task:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (view === "builder") {
+    return (
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="flex justify-between items-center border-b border-[#4a3e3e]/10 pb-6">
+          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Create Task / Project</h3>
+          <button 
+            onClick={() => setView("dashboard")}
+            className="text-sm font-bold text-[#4a3e3e]/40 hover:text-[#4a3e3e] transition-colors"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <input 
+            type="text" 
+            placeholder="Task Title" 
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full text-xl font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+          />
+          <select 
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="w-full bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none font-bold text-[#4a3e3e]/60 focus:ring-2 focus:ring-[#4a3e3e]/10"
+          >
+            <option>Clean Water</option>
+            <option>Community Schooling</option>
+            <option>Livelihood Training</option>
+            <option>Medical Camp</option>
+            <option>Relief Distribution</option>
+          </select>
+          <textarea 
+            placeholder="Description..." 
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full text-lg bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+            rows={3}
+          />
+          <div className="flex gap-4">
+            <input 
+              type="text" 
+              placeholder="City Name" 
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-2/3 text-lg font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+            />
+            <input 
+              type="number" 
+              placeholder="Volunteers Needed" 
+              value={volunteersNeeded}
+              onChange={(e) => setVolunteersNeeded(e.target.value)}
+              className="w-1/3 text-lg font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+              min="1"
+            />
           </div>
-          <ChevronRight size={20} className="text-[#4a3e3e]/20 group-hover:text-[#4a3e3e] group-hover:translate-x-1 transition-all" />
-        </motion.div>
-      ))}
+
+          {/* Schedule */}
+          <div className="bg-[#fcf8f6] rounded-2xl p-4 border border-[#4a3e3e]/5 space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#4a3e3e]/40">📅 Schedule (optional — adds Google Calendar event on acceptance)</p>
+            <div className="flex gap-3">
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                className="w-1/2 text-base font-bold bg-white px-4 py-3 rounded-xl border border-[#4a3e3e]/10 focus:ring-2 focus:ring-[#4a3e3e]/10"
+              />
+              <input
+                type="time"
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+                className="w-1/2 text-base font-bold bg-white px-4 py-3 rounded-xl border border-[#4a3e3e]/10 focus:ring-2 focus:ring-[#4a3e3e]/10"
+              />
+            </div>
+          </div>
+
+          <button 
+            onClick={handleCreate}
+            disabled={isSubmitting}
+            className="w-full py-6 mt-4 bg-[#22c55e] text-white font-black uppercase tracking-[0.3em] rounded-[2.5rem] shadow-xl shadow-green-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            {isSubmitting ? "Assigning..." : "Assign Task to Nearest Volunteers"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-end mb-4 border-b border-[#4a3e3e]/10 pb-4">
+        <div>
+          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Active Projects</h3>
+          <p className="text-[#4a3e3e]/50 text-sm font-bold mt-1">Tasks automatically assigned based on location</p>
+        </div>
+        <button 
+          onClick={() => setView("builder")}
+          className="px-6 py-3 bg-[#4a3e3e] text-white font-black uppercase tracking-[0.1em] text-xs rounded-2xl hover:shadow-lg hover:-translate-y-1 transition-all"
+        >
+          Create Task
+        </button>
+      </div>
+
+      <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+        {loading ? (
+          <p className="text-[#4a3e3e]/50 font-bold text-center py-10">Loading tasks...</p>
+        ) : tasks.length > 0 ? (
+          tasks.map((task: any, i: number) => (
+            <motion.div 
+              key={task._id} 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-white p-6 rounded-[2rem] border border-[#4a3e3e]/5 shadow-sm"
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <h4 className="font-black text-lg text-[#4a3e3e]">{task.title}</h4>
+                  <p className="text-[10px] uppercase font-black tracking-widest text-[#4a3e3e]/40 mt-1">{task.type} • {task.location}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                    task.status === 'Completed' ? 'bg-blue-100 text-blue-600' : 
+                    task.status === 'Assigned' ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'
+                  }`}>
+                    {task.status}
+                  </div>
+                  {task.status !== 'Completed' && (
+                    <button
+                      onClick={() => markTaskFinished(task._id)}
+                      className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-[#4a3e3e] text-[#fcf8f6] hover:bg-[#4a3e3e]/80 transition-colors"
+                    >
+                      Mark Finished
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-sm font-bold text-[#4a3e3e]/60 mt-4 bg-[#fcf8f6] p-4 rounded-xl border border-[#4a3e3e]/5">
+                {task.description}
+              </p>
+
+              {/* Schedule info */}
+              {task.scheduledDate && (
+                <div className="mt-3 flex items-center gap-2 bg-blue-50 p-3 rounded-xl border border-blue-100">
+                  <span className="text-blue-400 text-lg">📅</span>
+                  <div>
+                    <p className="text-xs font-black text-blue-600 uppercase tracking-widest">
+                      {new Date(task.scheduledDate).toDateString()}
+                      {task.scheduledTime && ` · ${task.scheduledTime}`}
+                    </p>
+                    <a
+                      href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('[Weave] ' + task.title)}&dates=${new Date(task.scheduledDate).toISOString().replace(/[-:]/g,'').split('.')[0]}Z/${new Date(new Date(task.scheduledDate).getTime()+7200000).toISOString().replace(/[-:]/g,'').split('.')[0]}Z&details=${encodeURIComponent(task.description)}&location=${encodeURIComponent(task.location)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] font-black text-blue-400 hover:text-blue-600 uppercase tracking-widest underline"
+                    >
+                      Add to Google Calendar →
+                    </a>
+                  </div>
+                </div>
+              )}
+              
+              <div className="mt-4">
+                <p className="text-xs font-black uppercase tracking-widest text-[#4a3e3e]/40 mb-2">
+                  Assigned Volunteers ({task.assignedVolunteers?.length || 0}/{task.volunteersNeeded})
+                </p>
+                {task.assignedVolunteers && task.assignedVolunteers.length > 0 ? (
+                  <div className="space-y-2">
+                    {task.assignedVolunteers.map((v: any, idx: number) => (
+                      <div key={idx} className="flex items-center justify-between bg-[#f4dada]/20 p-3 rounded-xl border border-[#4a3e3e]/5">
+                        <div className="flex items-center gap-2">
+                          <User size={16} className="text-[#4a3e3e]/60" /> 
+                          <span className="text-[#4a3e3e] font-bold text-sm">{v.name}</span>
+                        </div>
+                        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${
+                          v.status === 'Accepted' ? 'bg-green-100 text-green-600' :
+                          v.status === 'Rejected' ? 'bg-red-100 text-red-600' :
+                          'bg-amber-100 text-amber-600'
+                        }`}>
+                          {v.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs font-bold text-[#4a3e3e]/50 italic">No volunteers assigned yet.</p>
+                )}
+              </div>
+            </motion.div>
+          ))
+        ) : (
+          <p className="text-[#4a3e3e]/50 font-bold text-center py-10">No active tasks. Create one to assign volunteers.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CommunityFabric() {
+  const [volunteers, setVolunteers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("http://127.0.0.1:5000/volunteers")
+      .then(res => res.json())
+      .then(data => {
+        setVolunteers(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Error fetching volunteers:", err);
+        setLoading(false);
+      });
+  }, []);
+
+  return (
+    <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+      <div className="flex items-center space-x-4 mb-4 border-b border-[#4a3e3e]/10 pb-4">
+        <div className="p-4 rounded-full bg-red-500/10 text-red-500">
+          <MapIcon size={32} />
+        </div>
+        <div>
+          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Volunteer Heatmap</h3>
+          <p className="text-[#4a3e3e]/50 text-sm font-bold">Approximate locations of our community weavers</p>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {loading ? (
+          <p className="text-[#4a3e3e]/50 font-bold col-span-2 text-center py-10">Loading map data...</p>
+        ) : volunteers.length > 0 ? (
+          volunteers.map((v, i) => (
+            <div key={i} className="bg-white p-5 rounded-[1.5rem] border border-[#4a3e3e]/5 shadow-sm hover:shadow-md transition-all">
+              <p className="font-black text-lg text-[#4a3e3e]">{v.name}</p>
+              <p className="text-xs font-bold text-[#4a3e3e]/60 mb-2">{v.location}</p>
+              <div className="bg-[#fcf8f6] p-3 rounded-xl border border-[#4a3e3e]/5">
+                {(v.lat !== undefined && v.lng !== undefined) ? (
+                  <p className="text-[11px] font-black text-[#4a3e3e]/70 uppercase tracking-widest">
+                    📍 {v.lat.toFixed(4)}, {v.lng.toFixed(4)}
+                  </p>
+                ) : (
+                  <p className="text-[11px] font-black text-[#4a3e3e]/40 uppercase tracking-widest">
+                    Location Unknown
+                  </p>
+                )}
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-[#4a3e3e]/50 font-bold col-span-2 text-center py-10">No volunteer locations found.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -560,6 +877,8 @@ function SurveyLoom() {
   );
 }
 
+
+
 // --- Main Dashboard ---
 
 export default function WeaveHubDashboard() {
@@ -656,7 +975,7 @@ export default function WeaveHubDashboard() {
                   <motion.div 
                     animate={{ 
                       borderColor: isActive ? point.color : "rgba(74,62,62,0.05)",
-                      backgroundColor: isActive ? "white" : "rgba(255,255,255,0.4)",
+                      backgroundColor: isActive ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.4)",
                       y: isActive ? -8 : 0,
                       scale: isActive ? 1.05 : 1
                     }}
