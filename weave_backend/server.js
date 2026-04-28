@@ -475,8 +475,8 @@ app.post('/volunteers/recruit', async (req, res) => {
             location,
             address,
             aadhaar,
-            skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map((s: string) => s.trim()) : []),
-            interests: Array.isArray(interests) ? interests : (interests ? interests.split(',').map((i: string) => i.trim()) : []),
+            skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map(s => s.trim()) : []),
+            interests: Array.isArray(interests) ? interests : (interests ? interests.split(',').map(i => i.trim()) : []),
             isVolunteer: true,
             dob: '1900-01-01' // Default DOB if not provided
         });
