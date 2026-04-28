@@ -47,6 +47,7 @@ export default function HeatmapView() {
   const [hotspots, setHotspots] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
     if (!mapRef.current || mapInstanceRef.current) return;
 
     let map: any;
@@ -54,7 +55,7 @@ export default function HeatmapView() {
     const initMap = async () => {
       const L = (await import("leaflet")).default;
 
-      if (!mapRef.current || (mapRef.current as any)._leaflet_id) return;
+      if (!isMounted || !mapRef.current || (mapRef.current as any)._leaflet_id) return;
 
       // Fix marker icons
       delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -64,13 +65,42 @@ export default function HeatmapView() {
         shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
       });
 
+      let userLat = 22.5937;
+      let userLng = 78.9629;
+      let zoomLevel = 5;
+
+      try {
+        const position: any = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+        });
+        if (position && position.coords) {
+          userLat = position.coords.latitude;
+          userLng = position.coords.longitude;
+          zoomLevel = 12; // Zoom to device location
+        }
+      } catch (err) {
+        console.warn("Could not get device location, using default center.", err);
+      }
+
+      if (!isMounted || !mapRef.current || (mapRef.current as any)._leaflet_id) return;
+
       map = L.map(mapRef.current!, {
-        center: [22.5937, 78.9629],
-        zoom: 5,
+        center: [userLat, userLng],
+        zoom: zoomLevel,
         zoomControl: true,
         scrollWheelZoom: true,
         attributionControl: false,
       });
+
+      // Add a marker for the user's location
+      if (zoomLevel === 12) {
+        const userIcon = L.divIcon({
+          className: "",
+          html: `<div style="background: #3b82f6; border: 2px solid white; border-radius: 50%; width: 14px; height: 14px; box-shadow: 0 0 10px rgba(59,130,246,0.8);"></div>`,
+          iconAnchor: [7, 7]
+        });
+        L.marker([userLat, userLng], { icon: userIcon }).addTo(map).bindPopup("You are here");
+      }
 
       mapInstanceRef.current = map;
 
@@ -83,18 +113,84 @@ export default function HeatmapView() {
       // Attribution small
       L.control.attribution({ position: "bottomright", prefix: false }).addTo(map);
 
-      // Fetch real problem data
       let heatPoints = [...INDIA_DEVICES];
       try {
-        const res = await fetch("http://localhost:5000/problems");
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const realPts = data
-            .filter((p: any) => p.lat && p.lng)
-            .map((p: any) => ({ lat: parseFloat(p.lat), lng: parseFloat(p.lng), intensity: 1.0 }));
-          if (realPts.length > 0) heatPoints = [...realPts, ...INDIA_DEVICES];
+        const [probRes, volRes] = await Promise.all([
+          fetch("http://127.0.0.1:5000/problems").catch(() => null),
+          fetch("http://127.0.0.1:5000/volunteers").catch(() => null)
+        ]);
+        
+        let realPts: any[] = [];
+        let hasRealData = false;
+        
+        if (probRes && probRes.ok && probRes.headers.get("content-type")?.includes("application/json")) {
+          const data = await probRes.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const pts = data.filter((p: any) => p.lat && p.lng).map((p: any) => ({ lat: parseFloat(p.lat), lng: parseFloat(p.lng), intensity: 1.0 }));
+            realPts = [...realPts, ...pts];
+            hasRealData = true;
+
+            // Add labels for reports
+            data.forEach((p: any) => {
+              if (p.lat && p.lng) {
+                const icon = L.divIcon({
+                  className: "",
+                  html: `<div style="background: rgba(239,140,74,0.9); border: 1px solid rgba(74,62,62,0.1); border-radius: 999px; padding: 2px 6px; font-size: 9px; font-weight: bold; color: white; white-space: nowrap;">🚨 ${p.title}</div>`,
+                  iconAnchor: [20, 10],
+                });
+                L.marker([p.lat, p.lng], { icon }).addTo(map);
+              }
+            });
+          }
         }
-      } catch (_) { /* use dummy data */ }
+        
+        if (volRes && volRes.ok && volRes.headers.get("content-type")?.includes("application/json")) {
+          const volunteers = await volRes.json();
+          if (Array.isArray(volunteers) && volunteers.length > 0) {
+            const volPts = volunteers.filter((v: any) => v.lat && v.lng).map((v: any) => ({ lat: parseFloat(v.lat), lng: parseFloat(v.lng), intensity: 0.8 }));
+            realPts = [...realPts, ...volPts];
+            hasRealData = true;
+            
+            // Add labels for the real volunteer data
+            volunteers.forEach((v: any) => {
+              if (v.lat && v.lng) {
+                const icon = L.divIcon({
+                  className: "",
+                  html: `<div style="background: rgba(244,218,218,0.9); border: 1px solid rgba(74,62,62,0.1); border-radius: 999px; padding: 2px 6px; font-size: 9px; font-weight: bold; color: #4a3e3e; white-space: nowrap;">${v.name}</div>`,
+                  iconAnchor: [20, 10],
+                });
+                L.marker([v.lat, v.lng], { icon }).addTo(map);
+              }
+            });
+          }
+        }
+        
+        if (hasRealData) {
+          heatPoints = [...realPts, ...INDIA_DEVICES];
+        } else {
+          throw new Error("No real data available");
+        }
+      } catch (_) { 
+        // Use dummy data
+        const dummyVolunteers = [
+           { name: "Riya Sharma", lat: 28.6139, lng: 77.2090 },
+           { name: "Amit Patel", lat: 19.0760, lng: 72.8777 },
+           { name: "Sneha Reddy", lat: 12.9716, lng: 77.5946 },
+           { name: "Vikram Singh", lat: 26.9124, lng: 75.7873 },
+        ];
+        
+        const volPts = dummyVolunteers.map(v => ({ lat: v.lat, lng: v.lng, intensity: 0.8 }));
+        heatPoints = [...heatPoints, ...volPts];
+
+        dummyVolunteers.forEach((v: any) => {
+          const icon = L.divIcon({
+            className: "",
+            html: `<div style="background: rgba(244,218,218,0.9); border: 1px solid rgba(74,62,62,0.1); border-radius: 999px; padding: 2px 6px; font-size: 9px; font-weight: bold; color: #4a3e3e; white-space: nowrap;">${v.name}</div>`,
+            iconAnchor: [20, 10],
+          });
+          L.marker([v.lat, v.lng], { icon }).addTo(map);
+        });
+      }
 
       setTotalDevices(heatPoints.length);
       setHotspots(Math.ceil(heatPoints.filter(p => p.intensity > 0.7).length));
@@ -157,6 +253,7 @@ export default function HeatmapView() {
     initMap().catch(console.error);
 
     return () => {
+      isMounted = false;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;

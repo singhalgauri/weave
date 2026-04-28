@@ -24,11 +24,13 @@ import {
   Flower2,
   Settings,
   Pentagon as PentagonIcon,
+  AlertTriangle,
 } from "lucide-react";
 
 const HeatmapView = dynamic(() => import("./HeatmapView"), { ssr: false });
 const NGONetwork  = dynamic(() => import("./NGONetwork"),  { ssr: false });
 const VolunteersView = dynamic(() => import("./VolunteersView"), { ssr: false });
+import Chatbot from "./Chatbot";
 
 // --- Custom Icons ---
 
@@ -45,7 +47,7 @@ const Pentagon = ({ size, fill, stroke, strokeWidth, className }: any) => (
 
 // --- Types & Constants ---
 
-type Section = "Volunteers" | "Impact Projects" | "Survey Loom" | "NGO Network" | "Community Fabric";
+type Section = "Volunteers" | "Impact Projects" | "Survey Loom" | "NGO Network" | "Community Fabric" | "Reports";
 
 interface HubPoint {
   section: Section;
@@ -63,6 +65,7 @@ const HUB_POINTS: HubPoint[] = [
   { section: "Survey Loom", top: "70%", left: "22%", icon: ClipboardList, description: "Collect data from the field", shape: "pentagon", color: "#d8e6e0" },
   { section: "NGO Network", top: "74%", left: "72%", icon: Network, description: "Coordinate with partner organizations", shape: "pentagon", color: "#fdf6e3" },
   { section: "Community Fabric", top: "20%", left: "82%", icon: MapIcon, description: "Visualize the social landscape", shape: "pentagon", color: "#f4dada" },
+  { section: "Reports", top: "50%", left: "45%", icon: AlertTriangle, description: "Verify civilian reports", shape: "pentagon", color: "#e8d5d5" },
 ];
 
 const THEME = {
@@ -132,7 +135,8 @@ function ThreadLines() {
 
   const paths = [
     "M 30 25 C 40 15, 55 55, 65 45",
-    "M 65 45 C 55 65, 35 50, 22 70",
+    "M 65 45 C 60 55, 50 45, 45 50",
+    "M 45 50 C 35 60, 30 55, 22 70",
     "M 22 70 C 40 90, 60 80, 72 74",
     "M 72 74 C 90 60, 85 40, 82 20",
     "M 82 20 C 60 10, 40 40, 30 25"
@@ -253,6 +257,12 @@ function ThreadLines() {
 // --- View Stubs ---
 
 
+const TASK_SEED = [
+  { _id: "t1", title: "Clean Water Drive", type: "Clean Water", description: "Distribute water filters to 50 households.", location: "New Delhi", volunteersNeeded: 5, status: "Assigned", scheduledDate: new Date().toISOString(), assignedVolunteers: [{ name: "Riya Sharma", status: "Accepted" }] },
+  { _id: "t2", title: "School Supply Run", type: "Community Schooling", description: "Deliver textbooks to local primary school.", location: "Mumbai", volunteersNeeded: 2, status: "Pending", scheduledDate: new Date().toISOString(), assignedVolunteers: [] },
+  { _id: "t3", title: "Health Checkup Camp", type: "Medical Camp", description: "Assist doctors in organizing a free checkup camp.", location: "Bengaluru", volunteersNeeded: 10, status: "Completed", scheduledDate: new Date().toISOString(), assignedVolunteers: [{ name: "Sneha Reddy", status: "Accepted" }] },
+];
+
 function ProjectStub() {
   const [view, setView] = useState<"dashboard" | "builder">("dashboard");
   const [tasks, setTasks] = useState<any[]>([]);
@@ -278,10 +288,20 @@ function ProjectStub() {
     setLoading(true);
     try {
       const res = await fetch("http://127.0.0.1:5000/tasks");
+      if (!res.ok || !res.headers.get("content-type")?.includes("application/json")) {
+        console.warn("Backend tasks unavailable, using seed data.");
+        setTasks(TASK_SEED);
+        return;
+      }
       const data = await res.json();
-      setTasks(data);
+      if (Array.isArray(data)) {
+        setTasks(data);
+      } else {
+        setTasks(TASK_SEED);
+      }
     } catch (err) {
       console.error("Error fetching tasks:", err);
+      setTasks(TASK_SEED);
     } finally {
       setLoading(false);
     }
@@ -326,8 +346,11 @@ function ProjectStub() {
         setVolunteersNeeded("1"); setScheduledDate(""); setScheduledTime("");
         fetchTasks();
       } else {
-        const errorData = await res.json();
-        alert(errorData.error || 'Failed to create task');
+        let errorData = { error: 'Failed to create task' };
+        if (res.headers.get("content-type")?.includes("application/json")) {
+          errorData = await res.json();
+        }
+        alert(errorData.error);
       }
     } catch (err) {
       console.error("Error creating task:", err);
@@ -533,63 +556,7 @@ function ProjectStub() {
   );
 }
 
-function CommunityFabric() {
-  const [volunteers, setVolunteers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetch("http://127.0.0.1:5000/volunteers")
-      .then(res => res.json())
-      .then(data => {
-        setVolunteers(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Error fetching volunteers:", err);
-        setLoading(false);
-      });
-  }, []);
-
-  return (
-    <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
-      <div className="flex items-center space-x-4 mb-4 border-b border-[#4a3e3e]/10 pb-4">
-        <div className="p-4 rounded-full bg-red-500/10 text-red-500">
-          <MapIcon size={32} />
-        </div>
-        <div>
-          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Volunteer Heatmap</h3>
-          <p className="text-[#4a3e3e]/50 text-sm font-bold">Approximate locations of our community weavers</p>
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {loading ? (
-          <p className="text-[#4a3e3e]/50 font-bold col-span-2 text-center py-10">Loading map data...</p>
-        ) : volunteers.length > 0 ? (
-          volunteers.map((v, i) => (
-            <div key={i} className="bg-white p-5 rounded-[1.5rem] border border-[#4a3e3e]/5 shadow-sm hover:shadow-md transition-all">
-              <p className="font-black text-lg text-[#4a3e3e]">{v.name}</p>
-              <p className="text-xs font-bold text-[#4a3e3e]/60 mb-2">{v.location}</p>
-              <div className="bg-[#fcf8f6] p-3 rounded-xl border border-[#4a3e3e]/5">
-                {(v.lat !== undefined && v.lng !== undefined) ? (
-                  <p className="text-[11px] font-black text-[#4a3e3e]/70 uppercase tracking-widest">
-                    📍 {v.lat.toFixed(4)}, {v.lng.toFixed(4)}
-                  </p>
-                ) : (
-                  <p className="text-[11px] font-black text-[#4a3e3e]/40 uppercase tracking-widest">
-                    Location Unknown
-                  </p>
-                )}
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="text-[#4a3e3e]/50 font-bold col-span-2 text-center py-10">No volunteer locations found.</p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // --- Community Fabric (Leaflet Heatmap) ---
 
@@ -597,7 +564,142 @@ function CommunityFabric() {
   return <HeatmapView />;
 }
 
+// --- Reports View ---
+
+function ReportsView() {
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [assigning, setAssigning] = useState<string | null>(null);
+
+  const fetchReports = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("http://localhost:5000/problems");
+      if (res.ok) {
+        const data = await res.json();
+        setReports(data);
+      }
+    } catch (err) {
+      console.error("Error fetching reports:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  const handleAssign = async (id: string) => {
+    setAssigning(id);
+    try {
+      const res = await fetch(`http://localhost:5000/problems/${id}/assign`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Volunteer Assigned: ${data.assignedTo.name}`);
+        fetchReports();
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Failed to assign volunteer");
+      }
+    } catch (err) {
+      console.error("Error assigning volunteer:", err);
+      alert("Error assigning volunteer");
+    } finally {
+      setAssigning(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="border-b border-[#4a3e3e]/10 pb-4">
+        <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Civilian Reports</h3>
+        <p className="text-[#4a3e3e]/50 text-sm font-bold mt-1">Verify community issues with nearby volunteers</p>
+      </div>
+
+      <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+        {loading ? (
+          <p className="text-[#4a3e3e]/50 font-bold text-center py-10">Loading reports...</p>
+        ) : reports.length > 0 ? (
+          reports.map((report: any, i: number) => (
+            <motion.div 
+              key={report._id} 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.1 }}
+              className="bg-white p-6 rounded-[2rem] border border-[#4a3e3e]/5 shadow-sm"
+            >
+              <div className="flex justify-between items-start gap-4">
+                <div className="flex-1">
+                  <h4 className="font-black text-lg text-[#4a3e3e]">{report.title}</h4>
+                  <p className="text-[10px] uppercase font-black tracking-widest text-[#4a3e3e]/40 mt-1">📍 {report.location}</p>
+                  
+                  <div className="mt-3 flex gap-2">
+                    <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-[#fcf8f6] border border-[#4a3e3e]/10 text-[#4a3e3e]/60">
+                      Skill Needed: {report.requiredSkill || 'General'}
+                    </span>
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                      report.status === 'Verified Pending' || report.status === 'Assigned' ? 'bg-amber-100 text-amber-600' : 
+                      report.status === 'Verified' ? 'bg-green-100 text-green-600' : 'bg-[#e8d5d5] text-[#4a3e3e]'
+                    }`}>
+                      {report.status}
+                    </span>
+                  </div>
+
+                  <p className="text-sm font-bold text-[#4a3e3e]/60 mt-4 bg-[#fcf8f6] p-4 rounded-xl border border-[#4a3e3e]/5">
+                    {report.description}
+                  </p>
+
+                  <div className="mt-4 p-4 rounded-xl border border-[#4a3e3e]/5 bg-white">
+                    <p className="text-xs font-black uppercase tracking-widest text-[#4a3e3e]/40 mb-2">Verification Status</p>
+                    {report.assignedVolunteer && report.assignedVolunteer.email ? (
+                      <div className="flex items-center gap-2 text-sm font-bold text-green-600">
+                        <CheckCircle2 size={16} />
+                        Assigned to {report.assignedVolunteer.name} ({report.assignedVolunteer.phone})
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-[#4a3e3e]/50">Unassigned</span>
+                        <button
+                          onClick={() => handleAssign(report._id)}
+                          disabled={assigning === report._id}
+                          className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#4a3e3e] text-white hover:bg-[#4a3e3e]/80 transition-colors disabled:opacity-50"
+                        >
+                          {assigning === report._id ? 'Assigning...' : 'Find Nearest Volunteer'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {report.imageUrl && (
+                  <div className="w-32 h-32 rounded-xl overflow-hidden shadow-sm flex-shrink-0">
+                    <img src={report.imageUrl.startsWith('http') ? report.imageUrl : `http://localhost:5000${report.imageUrl}`} alt="Report" className="w-full h-full object-cover" />
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          ))
+        ) : (
+          <p className="text-[#4a3e3e]/50 font-bold text-center py-10">No reports available.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Survey Loom Components ---
+
+const SURVEY_SEED = [
+  { _id: "s1", title: "Clean Water Access", description: "Survey on drinking water availability in rural areas", questions: [{ id: 1, type: "text", text: "Is clean water available?" }], responsesCount: 45 },
+  { _id: "s2", title: "Education Infrastructure", description: "Assessing school facilities and teacher availability", questions: [], responsesCount: 120 },
+  { _id: "s3", title: "Healthcare Needs", description: "Identifying primary healthcare requirements", questions: [], responsesCount: 85 }
+];
+
+const SURVEY_RESPONSES_SEED = [
+  { userName: "Riya Sharma", responses: [{ questionText: "Is clean water available?", answer: "Yes, but only for 2 hours daily." }, { questionText: "Distance to nearest source?", answer: "1 km" }] },
+  { userName: "Amit Patel", responses: [{ questionText: "Is clean water available?", answer: "No, we rely on tankers." }, { questionText: "Distance to nearest source?", answer: "N/A" }] }
+];
 
 function SurveyLoom() {
   const [view, setView] = useState<"dashboard" | "builder" | "analytics">("dashboard");
@@ -614,23 +716,45 @@ function SurveyLoom() {
   useEffect(() => {
     if (view === "dashboard") {
       fetch(`${API_URL}/surveys`)
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok || !res.headers.get("content-type")?.includes("application/json")) {
+            console.warn("Backend surveys unavailable, using seed data.");
+            return SURVEY_SEED;
+          }
+          return res.json();
+        })
         .then(data => {
           if (Array.isArray(data)) {
             setActiveSurveys(data);
+          } else {
+            setActiveSurveys(SURVEY_SEED);
           }
         })
-        .catch(err => console.error("Error fetching surveys:", err));
+        .catch(err => {
+          console.error("Error fetching surveys:", err);
+          setActiveSurveys(SURVEY_SEED);
+        });
     }
     if (view === "analytics" && selectedSurvey) {
       fetch(`${API_URL}/surveys/${selectedSurvey._id}/responses`)
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok || !res.headers.get("content-type")?.includes("application/json")) {
+            console.warn("Backend responses unavailable, using seed data.");
+            return SURVEY_RESPONSES_SEED;
+          }
+          return res.json();
+        })
         .then(data => {
           if (Array.isArray(data)) {
             setSurveyResponses(data);
+          } else {
+            setSurveyResponses(SURVEY_RESPONSES_SEED);
           }
         })
-        .catch(err => console.error("Error fetching responses:", err));
+        .catch(err => {
+          console.error("Error fetching responses:", err);
+          setSurveyResponses(SURVEY_RESPONSES_SEED);
+        });
     }
   }, [view, selectedSurvey]);
 
@@ -1033,6 +1157,7 @@ export default function WeaveHubDashboard() {
                   {activeSection === "Survey Loom" && <SurveyLoom />}
                   {activeSection === "NGO Network" && <NGONetwork />}
                   {activeSection === "Community Fabric" && <CommunityFabric />}
+                  {activeSection === "Reports" && <ReportsView />}
                 </div>
               </div>
               
@@ -1049,16 +1174,8 @@ export default function WeaveHubDashboard() {
         )}
       </AnimatePresence>
 
-      {/* Floating Action Button (Needle) */}
-      <div className="fixed bottom-12 right-12 z-[2000]">
-        <motion.button
-          whileHover={{ scale: 1.1, rotate: 15 }}
-          whileTap={{ scale: 0.9 }}
-          className="w-24 h-24 rounded-[2.5rem] bg-white text-[#4a3e3e] flex items-center justify-center shadow-xl border border-[#4a3e3e]/10"
-        >
-          <MessageSquare size={40} />
-        </motion.button>
-      </div>
+      {/* Chatbot Interface */}
+      <Chatbot />
     </div>
   );
 }

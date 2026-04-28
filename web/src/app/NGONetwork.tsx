@@ -236,10 +236,12 @@ export default function NGONetwork() {
           fetch(`${API}/communities`),
           fetch(`${API}/ngos`),
         ]);
+        if (!cRes.ok || !cRes.headers.get("content-type")?.includes("application/json")) throw new Error("Invalid communities");
+        if (!nRes.ok || !nRes.headers.get("content-type")?.includes("application/json")) throw new Error("Invalid ngos");
         const cData = await cRes.json();
         const nData = await nRes.json();
-        setCommunities(Array.isArray(cData) && cData.length > 0 ? cData : COMMUNITY_SEED);
-        setNgos(Array.isArray(nData) && nData.length > 0 ? nData : NGO_SEED);
+        setCommunities(Array.isArray(cData) ? cData : COMMUNITY_SEED);
+        setNgos(Array.isArray(nData) ? nData : NGO_SEED);
       } catch {
         setCommunities(COMMUNITY_SEED);
         setNgos(NGO_SEED);
