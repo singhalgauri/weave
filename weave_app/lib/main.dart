@@ -6,10 +6,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-// For Android Emulator, use 10.0.2.2
+// For Android Emulator, use 10.0.2.2  ✅
 // For Web or iOS Simulator, use 127.0.0.1
 // For Physical Devices, use your computer's local Wi-Fi IP address (e.g., 192.168.x.x)
-const String backendBaseUrl = 'http://localhost:5000';
+const String backendBaseUrl = 'http://10.90.131.179:5000';
 
 String? globalUserEmail;
 String? globalJwtToken;
@@ -300,7 +300,6 @@ class _LoginPageState extends State<LoginPage> {
   final phoneController = TextEditingController();
   final locationController = TextEditingController();
 
-
   double? _lat;
   double? _lng;
 
@@ -316,7 +315,7 @@ class _LoginPageState extends State<LoginPage> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return null;
     }
-    
+
     if (permission == LocationPermission.deniedForever) return null;
 
     return await Geolocator.getCurrentPosition();
@@ -353,7 +352,6 @@ class _LoginPageState extends State<LoginPage> {
             'lat': _lat,
             'lng': _lng,
           };
-
 
     try {
       final res = await http.post(
@@ -452,7 +450,12 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        TextField(controller: phoneController, decoration: const InputDecoration(labelText: 'Phone Number')),
+                        TextField(
+                          controller: phoneController,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone Number',
+                          ),
+                        ),
                         const SizedBox(height: 10),
                         TextField(
                           controller: locationController,
@@ -784,7 +787,9 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
         _locationController.text.isEmpty ||
         _image == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields and select an image')),
+        const SnackBar(
+          content: Text('Please fill all fields and select an image'),
+        ),
       );
       return;
     }
@@ -794,12 +799,12 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
     try {
       final uri = Uri.parse('$backendBaseUrl/report-problem');
       final request = http.MultipartRequest('POST', uri);
-      
+
       request.headers['Authorization'] = 'Bearer $globalJwtToken';
       request.fields['title'] = _titleController.text;
       request.fields['description'] = _descController.text;
       request.fields['location'] = _locationController.text;
-      
+
       request.files.add(
         await http.MultipartFile.fromPath('image', _image!.path),
       );
@@ -818,15 +823,17 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
         final data = jsonDecode(respStr);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['error'] ?? 'Failed to report problem')),
+            SnackBar(
+              content: Text(data['error'] ?? 'Failed to report problem'),
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) {
@@ -875,7 +882,12 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
                     color: Colors.grey[200],
                     child: const Center(child: Text('No image selected.')),
                   )
-                : Image.file(_image!, height: 200, width: double.infinity, fit: BoxFit.cover),
+                : Image.file(
+                    _image!,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               icon: const Icon(Icons.image),
@@ -892,7 +904,10 @@ class _ReportProblemPageState extends State<ReportProblemPage> {
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      child: const Text('Submit Problem', style: TextStyle(fontSize: 16)),
+                      child: const Text(
+                        'Submit Problem',
+                        style: TextStyle(fontSize: 16),
+                      ),
                     ),
                   ),
           ],
@@ -942,29 +957,29 @@ class _SurveysListPageState extends State<SurveysListPage> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : surveys.isEmpty
-              ? const Center(child: Text('No active surveys currently.'))
-              : ListView.builder(
-                  itemCount: surveys.length,
-                  itemBuilder: (context, index) {
-                    final s = surveys[index];
-                    return Card(
-                      margin: const EdgeInsets.all(8),
-                      child: ListTile(
-                        title: Text(s['title'] ?? 'Untitled Survey'),
-                        subtitle: Text(s['description'] ?? ''),
-                        trailing: const Icon(Icons.arrow_forward_ios),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => SurveyFormPage(survey: s),
-                            ),
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
+          ? const Center(child: Text('No active surveys currently.'))
+          : ListView.builder(
+              itemCount: surveys.length,
+              itemBuilder: (context, index) {
+                final s = surveys[index];
+                return Card(
+                  margin: const EdgeInsets.all(8),
+                  child: ListTile(
+                    title: Text(s['title'] ?? 'Untitled Survey'),
+                    subtitle: Text(s['description'] ?? ''),
+                    trailing: const Icon(Icons.arrow_forward_ios),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SurveyFormPage(survey: s),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -1043,9 +1058,9 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -1128,7 +1143,10 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
                       children: [
                         Text(
                           q['text'] ?? 'Question ${index + 1}',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         inputWidget,
@@ -1147,7 +1165,10 @@ class _SurveyFormPageState extends State<SurveyFormPage> {
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      child: const Text('Submit Survey', style: TextStyle(fontSize: 16)),
+                      child: const Text(
+                        'Submit Survey',
+                        style: TextStyle(fontSize: 16),
+                      ),
                     ),
                   ),
           ],
@@ -1217,7 +1238,9 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
               context: context,
               builder: (ctx) => AlertDialog(
                 title: const Text('Add to Google Calendar?'),
-                content: const Text('This task has been added to your schedule. Would you like to add it to your Google Calendar?'),
+                content: const Text(
+                  'This task has been added to your schedule. Would you like to add it to your Google Calendar?',
+                ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(ctx),
@@ -1228,11 +1251,19 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
                       Navigator.pop(ctx);
                       final uri = Uri.parse(calUrl);
                       if (await canLaunchUrl(uri)) {
-                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        await launchUrl(
+                          uri,
+                          mode: LaunchMode.externalApplication,
+                        );
                       }
                     },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                    child: const Text('Open Calendar', style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                    ),
+                    child: const Text(
+                      'Open Calendar',
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
                 ],
               ),
@@ -1247,9 +1278,9 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -1260,133 +1291,170 @@ class _VolunteerTasksPageState extends State<VolunteerTasksPage> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : tasks.isEmpty
-              ? const Center(child: Text('No tasks assigned to you.'))
-              : ListView.builder(
-                  itemCount: tasks.length,
-                  itemBuilder: (context, index) {
-                    final t = tasks[index];
-                    final String taskId = t['_id'];
-                    final List<dynamic> assigned = t['assignedVolunteers'] ?? [];
-                    final myAssignment = assigned.firstWhere(
-                      (v) => v['email'] == globalUserEmail, 
-                      orElse: () => null
-                    );
-                    final String status = myAssignment != null ? myAssignment['status'] : 'Pending';
+          ? const Center(child: Text('No tasks assigned to you.'))
+          : ListView.builder(
+              itemCount: tasks.length,
+              itemBuilder: (context, index) {
+                final t = tasks[index];
+                final String taskId = t['_id'];
+                final List<dynamic> assigned = t['assignedVolunteers'] ?? [];
+                final myAssignment = assigned.firstWhere(
+                  (v) => v['email'] == globalUserEmail,
+                  orElse: () => null,
+                );
+                final String status = myAssignment != null
+                    ? myAssignment['status']
+                    : 'Pending';
 
-                    return Card(
-                      margin: const EdgeInsets.all(8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              t['title'] ?? 'Untitled Task',
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                return Card(
+                  margin: const EdgeInsets.all(8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          t['title'] ?? 'Untitled Task',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text('Type: ${t['type']}'),
+                        Text('Location: ${t['location']}'),
+                        const SizedBox(height: 8),
+                        Text(t['description'] ?? ''),
+
+                        // â”€â”€â”€ Schedule Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                        if (t['scheduledDate'] != null) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.blue.shade100),
                             ),
-                            const SizedBox(height: 8),
-                            Text('Type: ${t['type']}'),
-                            Text('Location: ${t['location']}'),
-                            const SizedBox(height: 8),
-                            Text(t['description'] ?? ''),
-
-                            // â”€â”€â”€ Schedule Info â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                            if (t['scheduledDate'] != null) ...[
-                              const SizedBox(height: 12),
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: Colors.blue.shade100),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.calendar_month,
+                                  color: Colors.blue.shade400,
+                                  size: 18,
                                 ),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.calendar_month, color: Colors.blue.shade400, size: 18),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            DateTime.parse(t['scheduledDate']).toLocal().toString().split(' ')[0] +
-                                            (t['scheduledTime'] != null ? '  ${t['scheduledTime']}' : ''),
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.blue.shade700,
-                                            ),
-                                          ),
-                                        ],
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        DateTime.parse(t['scheduledDate'])
+                                                .toLocal()
+                                                .toString()
+                                                .split(' ')[0] +
+                                            (t['scheduledTime'] != null
+                                                ? '  ${t['scheduledTime']}'
+                                                : ''),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.blue.shade700,
+                                        ),
                                       ),
-                                    ),
-                                    // Add to Calendar Button
-                                    TextButton.icon(
-                                      onPressed: () async {
-                                        final dateStr = DateTime.parse(t['scheduledDate'])
+                                    ],
+                                  ),
+                                ),
+                                // Add to Calendar Button
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    final dateStr =
+                                        DateTime.parse(t['scheduledDate'])
                                             .toUtc()
                                             .toIso8601String()
                                             .replaceAll(RegExp(r'[-:]'), '')
-                                            .split('.')[0] + 'Z';
-                                        final endStr = DateTime.parse(t['scheduledDate'])
+                                            .split('.')[0] +
+                                        'Z';
+                                    final endStr =
+                                        DateTime.parse(t['scheduledDate'])
                                             .toUtc()
                                             .add(const Duration(hours: 2))
                                             .toIso8601String()
                                             .replaceAll(RegExp(r'[-:]'), '')
-                                            .split('.')[0] + 'Z';
-                                        final calUrl = Uri.parse(
-                                          'https://calendar.google.com/calendar/render?action=TEMPLATE'
-                                          '&text=${Uri.encodeComponent('[Weave] ${t['title']}')}'  
-                                          '&dates=$dateStr/$endStr'
-                                          '&details=${Uri.encodeComponent(t['description'] ?? '')}'
-                                          '&location=${Uri.encodeComponent(t['location'] ?? '')}'
-                                        );
-                                        if (await canLaunchUrl(calUrl)) {
-                                          await launchUrl(calUrl, mode: LaunchMode.externalApplication);
-                                        }
-                                      },
-                                      icon: const Icon(Icons.open_in_new, size: 14),
-                                      label: const Text('Add', style: TextStyle(fontSize: 12)),
-                                      style: TextButton.styleFrom(foregroundColor: Colors.blue),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Chip(
-                                  label: Text(status),
-                                  backgroundColor: status == 'Accepted' 
-                                      ? Colors.green[100] 
-                                      : status == 'Rejected' 
-                                          ? Colors.red[100] 
-                                          : Colors.orange[100],
-                                ),
-                                if (status == 'Pending')
-                                  Row(
-                                    children: [
-                                      TextButton(
-                                        onPressed: () => respondToTask(taskId, 'reject'),
-                                        child: const Text('Reject', style: TextStyle(color: Colors.red)),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      ElevatedButton(
-                                        onPressed: () => respondToTask(taskId, 'accept'),
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                        child: const Text('Accept', style: TextStyle(color: Colors.white)),
-                                      ),
-                                    ],
+                                            .split('.')[0] +
+                                        'Z';
+                                    final calUrl = Uri.parse(
+                                      'https://calendar.google.com/calendar/render?action=TEMPLATE'
+                                      '&text=${Uri.encodeComponent('[Weave] ${t['title']}')}'
+                                      '&dates=$dateStr/$endStr'
+                                      '&details=${Uri.encodeComponent(t['description'] ?? '')}'
+                                      '&location=${Uri.encodeComponent(t['location'] ?? '')}',
+                                    );
+                                    if (await canLaunchUrl(calUrl)) {
+                                      await launchUrl(
+                                        calUrl,
+                                        mode: LaunchMode.externalApplication,
+                                      );
+                                    }
+                                  },
+                                  icon: const Icon(Icons.open_in_new, size: 14),
+                                  label: const Text(
+                                    'Add',
+                                    style: TextStyle(fontSize: 12),
                                   ),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: Colors.blue,
+                                  ),
+                                ),
                               ],
                             ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Chip(
+                              label: Text(status),
+                              backgroundColor: status == 'Accepted'
+                                  ? Colors.green[100]
+                                  : status == 'Rejected'
+                                  ? Colors.red[100]
+                                  : Colors.orange[100],
+                            ),
+                            if (status == 'Pending')
+                              Row(
+                                children: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        respondToTask(taskId, 'reject'),
+                                    child: const Text(
+                                      'Reject',
+                                      style: TextStyle(color: Colors.red),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ElevatedButton(
+                                    onPressed: () =>
+                                        respondToTask(taskId, 'accept'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                    ),
+                                    child: const Text(
+                                      'Accept',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -1415,7 +1483,10 @@ class _ImpactDashboardPageState extends State<ImpactDashboardPage> {
         headers: {'Authorization': 'Bearer $globalJwtToken'},
       );
       if (res.statusCode == 200) {
-        setState(() { impactData = jsonDecode(res.body); isLoading = false; });
+        setState(() {
+          impactData = jsonDecode(res.body);
+          isLoading = false;
+        });
       } else {
         setState(() => isLoading = false);
       }
@@ -1428,11 +1499,16 @@ class _ImpactDashboardPageState extends State<ImpactDashboardPage> {
   Widget build(BuildContext context) {
     final stats = impactData?['stats'] as Map<String, dynamic>? ?? {};
     final badges = impactData?['badges'] as List<dynamic>? ?? [];
-    final completedTasks = impactData?['completedTasks'] as List<dynamic>? ?? [];
+    final completedTasks =
+        impactData?['completedTasks'] as List<dynamic>? ?? [];
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(title: const Text('My Impact'), backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+      appBar: AppBar(
+        title: const Text('My Impact'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+      ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -1444,45 +1520,116 @@ class _ImpactDashboardPageState extends State<ImpactDashboardPage> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFF4a3e3e), Color(0xFF7b5ea7)]),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF4a3e3e), Color(0xFF7b5ea7)],
+                      ),
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: Column(children: [
-                      const Text('Your Impact Score', style: TextStyle(color: Colors.white70, fontSize: 12, letterSpacing: 2)),
-                      const SizedBox(height: 4),
-                      Text('${stats['impactScore'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 16),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                        _StatChip(label: 'Tasks Done', value: '${stats['totalCompleted'] ?? 0}'),
-                        _StatChip(label: 'High Urgency', value: '${stats['highUrgencyCompleted'] ?? 0}'),
-                        _StatChip(label: 'Badges', value: '${badges.length}'),
-                      ]),
-                    ]),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'Your Impact Score',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${stats['impactScore'] ?? 0}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 48,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _StatChip(
+                              label: 'Tasks Done',
+                              value: '${stats['totalCompleted'] ?? 0}',
+                            ),
+                            _StatChip(
+                              label: 'High Urgency',
+                              value: '${stats['highUrgencyCompleted'] ?? 0}',
+                            ),
+                            _StatChip(
+                              label: 'Badges',
+                              value: '${badges.length}',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 24),
-                  const Text('Earned Badges', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Earned Badges',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 12),
                   badges.isEmpty
-                    ? const Text('Complete tasks to earn your first badge!', style: TextStyle(color: Colors.grey))
-                    : Wrap(spacing: 10, runSpacing: 10, children: badges.map((b) => Chip(
-                        avatar: Text(b['emoji'] ?? '', style: const TextStyle(fontSize: 16)),
-                        label: Text(b['name'] ?? ''),
-                        backgroundColor: Colors.purple.shade50,
-                      )).toList()),
+                      ? const Text(
+                          'Complete tasks to earn your first badge!',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                      : Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: badges
+                              .map(
+                                (b) => Chip(
+                                  avatar: Text(
+                                    b['emoji'] ?? '',
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                                  label: Text(b['name'] ?? ''),
+                                  backgroundColor: Colors.purple.shade50,
+                                ),
+                              )
+                              .toList(),
+                        ),
                   const SizedBox(height: 24),
-                  const Text('Completed Tasks', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Completed Tasks',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 12),
                   completedTasks.isEmpty
-                    ? const Text('No completed tasks yet.', style: TextStyle(color: Colors.grey))
-                    : Column(children: completedTasks.map((t) => Card(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        child: ListTile(
-                          leading: const Icon(Icons.check_circle, color: Colors.green),
-                          title: Text(t['title'] ?? ''),
-                          subtitle: Text('${t['type']} · ${t['location']}'),
-                          trailing: Chip(label: Text('U:${t['urgency'] ?? 5}', style: const TextStyle(fontSize: 10))),
+                      ? const Text(
+                          'No completed tasks yet.',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                      : Column(
+                          children: completedTasks
+                              .map(
+                                (t) => Card(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: ListTile(
+                                    leading: const Icon(
+                                      Icons.check_circle,
+                                      color: Colors.green,
+                                    ),
+                                    title: Text(t['title'] ?? ''),
+                                    subtitle: Text(
+                                      '${t['type']} · ${t['location']}',
+                                    ),
+                                    trailing: Chip(
+                                      label: Text(
+                                        'U:${t['urgency'] ?? 5}',
+                                        style: const TextStyle(fontSize: 10),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
                         ),
-                      )).toList()),
                 ],
               ),
             ),
@@ -1497,9 +1644,21 @@ class _StatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-      Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
-    ]);
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 10),
+        ),
+      ],
+    );
   }
 }
