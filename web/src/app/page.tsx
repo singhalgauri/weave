@@ -277,6 +277,8 @@ function ProjectStub() {
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     if (view === "dashboard") {
@@ -307,6 +309,27 @@ function ProjectStub() {
     }
   };
 
+  const handleSyncCalendar = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch("http://127.0.0.1:5000/tasks/sync-calendar", {
+        method: "POST"
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message);
+        fetchTasks();
+      } else {
+        alert("Failed to sync calendar");
+      }
+    } catch (err) {
+      console.error("Error syncing calendar:", err);
+      alert("Error syncing calendar");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const markTaskFinished = async (id: string) => {
     try {
       const res = await fetch(`http://127.0.0.1:5000/tasks/${id}/complete`, {
@@ -320,6 +343,31 @@ function ProjectStub() {
       }
     } catch (err) {
       console.error("Error marking task finished:", err);
+    }
+  };
+
+  const handleGenerateDescription = async () => {
+    if (!title) {
+      alert("Please enter a title first.");
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const res = await fetch("http://127.0.0.1:5000/generate-project-description", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, type, location })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.description) setDescription(data.description);
+      } else {
+        alert("Failed to generate description");
+      }
+    } catch (err) {
+      console.error("Error generating description:", err);
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -391,13 +439,23 @@ function ProjectStub() {
             <option>Medical Camp</option>
             <option>Relief Distribution</option>
           </select>
-          <textarea 
-            placeholder="Description..." 
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full text-lg bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
-            rows={3}
-          />
+          <div className="relative">
+            <textarea 
+              placeholder="Description..." 
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full text-lg bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10 pr-40"
+              rows={3}
+            />
+            <button
+              onClick={handleGenerateDescription}
+              disabled={isGenerating}
+              className="absolute top-4 right-4 text-xs font-black uppercase tracking-widest bg-gradient-to-r from-[#e8d5d5] to-[#f4dada] text-[#4a3e3e] px-4 py-2 rounded-xl shadow-sm hover:shadow-md transition-all disabled:opacity-50 flex items-center gap-2"
+            >
+              <Bot size={14} />
+              {isGenerating ? "Thinking..." : "Auto-fill"}
+            </button>
+          </div>
           <div className="flex gap-4">
             <input 
               type="text" 
@@ -453,12 +511,21 @@ function ProjectStub() {
           <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Active Projects</h3>
           <p className="text-[#4a3e3e]/50 text-sm font-bold mt-1">Tasks automatically assigned based on location</p>
         </div>
-        <button 
-          onClick={() => setView("builder")}
-          className="px-6 py-3 bg-[#4a3e3e] text-white font-black uppercase tracking-[0.1em] text-xs rounded-2xl hover:shadow-lg hover:-translate-y-1 transition-all"
-        >
-          Create Task
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={handleSyncCalendar}
+            disabled={isSyncing}
+            className="px-6 py-3 bg-blue-500 text-white font-black uppercase tracking-[0.1em] text-xs rounded-2xl hover:shadow-lg hover:-translate-y-1 transition-all disabled:opacity-50"
+          >
+            {isSyncing ? "Syncing..." : "Sync NGO Calendar"}
+          </button>
+          <button 
+            onClick={() => setView("builder")}
+            className="px-6 py-3 bg-[#4a3e3e] text-white font-black uppercase tracking-[0.1em] text-xs rounded-2xl hover:shadow-lg hover:-translate-y-1 transition-all"
+          >
+            Create Task
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
@@ -567,9 +634,18 @@ function CommunityFabric() {
 // --- Reports View ---
 
 function ReportsView() {
+  const [view, setView] = useState<"dashboard" | "builder">("dashboard");
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState<string | null>(null);
+
+  // Form State
+  const [title, setTitle] = useState("");
+  const [location, setLocation] = useState("");
+  const [description, setDescription] = useState("");
+  const [requiredSkill, setRequiredSkill] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchReports = async () => {
     setLoading(true);
@@ -587,8 +663,10 @@ function ReportsView() {
   };
 
   useEffect(() => {
-    fetchReports();
-  }, []);
+    if (view === "dashboard") {
+      fetchReports();
+    }
+  }, [view]);
 
   const handleAssign = async (id: string) => {
     setAssigning(id);
@@ -610,11 +688,132 @@ function ReportsView() {
     }
   };
 
+  const handleGenerateReportDetails = async () => {
+    if (!title) {
+      alert("Please enter a title first.");
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const res = await fetch("http://localhost:5000/generate-report-details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, location })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.description) setDescription(data.description);
+        if (data.requiredSkill) setRequiredSkill(data.requiredSkill);
+      } else {
+        alert("Failed to generate report details");
+      }
+    } catch (err) {
+      console.error("Error generating report details:", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleCreateReport = async () => {
+    if (!title || !description || !location) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("http://localhost:5000/problems", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description, location, requiredSkill })
+      });
+      if (res.ok) {
+        setView("dashboard");
+        setTitle(""); setLocation(""); setDescription(""); setRequiredSkill("");
+        fetchReports();
+      } else {
+        alert("Failed to create report");
+      }
+    } catch (err) {
+      console.error("Error creating report:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (view === "builder") {
+    return (
+      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="flex justify-between items-center border-b border-[#4a3e3e]/10 pb-6">
+          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Draft New Report</h3>
+          <button 
+            onClick={() => setView("dashboard")}
+            className="text-sm font-bold text-[#4a3e3e]/40 hover:text-[#4a3e3e] transition-colors"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <input 
+            type="text" 
+            placeholder="Report Title (e.g. Water logging in sector 4)" 
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full text-xl font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+          />
+          <input 
+            type="text" 
+            placeholder="Location" 
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            className="w-full text-lg font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+          />
+          <div className="relative">
+            <textarea 
+              placeholder="Description..." 
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full text-lg bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10 pr-40"
+              rows={3}
+            />
+            <button
+              onClick={handleGenerateReportDetails}
+              disabled={isGenerating}
+              className="absolute top-4 right-4 text-xs font-black uppercase tracking-widest bg-gradient-to-r from-[#e8d5d5] to-[#f4dada] text-[#4a3e3e] px-4 py-2 rounded-xl shadow-sm hover:shadow-md transition-all disabled:opacity-50 flex items-center gap-2"
+            >
+              <Bot size={14} />
+              {isGenerating ? "Thinking..." : "Auto-fill"}
+            </button>
+          </div>
+          <input 
+            type="text" 
+            placeholder="Required Skill (e.g. Plumbing, First Aid)" 
+            value={requiredSkill}
+            onChange={(e) => setRequiredSkill(e.target.value)}
+            className="w-full text-lg font-bold bg-[#fcf8f6] px-6 py-4 rounded-2xl border-none focus:ring-2 focus:ring-[#4a3e3e]/10"
+          />
+
+          <button 
+            onClick={handleCreateReport}
+            disabled={isSubmitting}
+            className="w-full py-6 mt-4 bg-[#22c55e] text-white font-black uppercase tracking-[0.3em] rounded-[2.5rem] shadow-xl shadow-green-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            {isSubmitting ? "Submitting..." : "Submit Report"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="border-b border-[#4a3e3e]/10 pb-4">
-        <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Civilian Reports</h3>
-        <p className="text-[#4a3e3e]/50 text-sm font-bold mt-1">Verify community issues with nearby volunteers</p>
+      <div className="flex justify-between items-end mb-4 border-b border-[#4a3e3e]/10 pb-4">
+        <div>
+          <h3 className="text-xl font-black text-[#4a3e3e] uppercase tracking-wider">Civilian Reports</h3>
+          <p className="text-[#4a3e3e]/50 text-sm font-bold mt-1">Verify community issues with nearby volunteers</p>
+        </div>
+        <button 
+          onClick={() => setView("builder")}
+          className="px-6 py-3 bg-[#4a3e3e] text-white font-black uppercase tracking-[0.1em] text-xs rounded-2xl hover:shadow-lg hover:-translate-y-1 transition-all"
+        >
+          Draft New Report
+        </button>
       </div>
 
       <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">

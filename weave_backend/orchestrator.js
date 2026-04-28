@@ -32,7 +32,7 @@ const OrchestratorLogModel = mongoose.model('OrchestratorLog', orchestratorLogSc
 // -------------------------------------------------------------------
 function getGeminiModel() {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    return genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 }
 
 // -------------------------------------------------------------------
