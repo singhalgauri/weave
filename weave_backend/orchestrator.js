@@ -102,8 +102,13 @@ In 2-3 sentences, explain:
 Be concise, use plain language suitable for an NGO coordinator.
     `.trim();
 
-    const result = await model.generateContent(prompt);
-    const recommendation = result.response.text();
+    try {
+        const result = await model.generateContent(prompt);
+        recommendation = result.response.text();
+    } catch (err) {
+        console.error('[Orchestrator] Gemini API error in resolveConflict:', err.message);
+        recommendation = `Conflict detected. Recommended to prioritize task with higher score.`;
+    }
 
     // Log the decision
     await OrchestratorLogModel.create({
@@ -184,12 +189,19 @@ Write a SHORT (2 sentences max) pre-alert message for volunteers.
 Tell them what's rising, ask them to confirm availability, keep tone calm and professional.
         `.trim();
 
-        const result = await model.generateContent(prompt);
-        const alertMessage = result.response.text();
+        let alertMessage = `Rising reports detected for ${spike.category}. Please be on standby.`;
+        try {
+            const result = await model.generateContent(prompt);
+            alertMessage = result.response.text();
+        } catch (err) {
+            console.error('[Orchestrator] Gemini API error in runPredictiveAnalysis:', err.message);
+        }
 
         // Send WhatsApp alerts
         for (const vol of targetVolunteers) {
-            await sendWhatsAppMessage(vol.phone, `[Weave Alert] ${alertMessage}`);
+            if (typeof sendWhatsAppMessage === 'function') {
+                await sendWhatsAppMessage(vol.phone, `[Weave Alert] ${alertMessage}`);
+            }
         }
 
         // Log prediction

@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 
 const {
@@ -63,7 +64,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_change_me';
 mongoose.connect(MONGO_URI).then(() => {
     console.log("Connected to MongoDB successfully!");
     // Start the Resource Orchestrator Agent
-    startOrchestrator({ User, Task, Problem });
+    startOrchestrator({ User, Task, Problem }, async (phone, msg) => {
+        console.log(`[WhatsApp Mock] To ${phone}: ${msg}`);
+    });
 
     // ── Orchestrator Auto-loops (needs DB ready) ─────────────────────────────
     const runOrchestratorPredict = async () => {
@@ -78,16 +81,31 @@ mongoose.connect(MONGO_URI).then(() => {
     const runOrchestratorRescore = async () => {
         try {
             const pending = await Task.find({ status: "Pending" });
-            const vols = await User.find({ isVolunteer: true });
             if (pending.length === 0) return;
-            for (const task of pending)
-                for (const vol of vols)
-                    computePriorityScore(task, vol);
-            console.log(`[Orchestrator] Re-scored ${pending.length} task(s) vs ${vols.length} volunteer(s).`);
+            
+            for (const task of pending) {
+                // Perform priority scheduling for present drives using Orchestrator Agent
+                const rankedVolunteers = await rankVolunteersForTask(task);
+                const volunteersNeeded = task.volunteersNeeded || 1;
+                
+                if (rankedVolunteers.length > 0) {
+                    const topN = rankedVolunteers.slice(0, volunteersNeeded);
+                    task.assignedVolunteers = topN.map(item => ({
+                        email: item.volunteer.email,
+                        name: item.volunteer.name,
+                        phone: item.volunteer.phone,
+                        status: 'Pending'
+                    }));
+                    task.status = 'Assigned';
+                    await task.save();
+                }
+            }
+            console.log(`[Orchestrator] Priority Scheduled ${pending.length} pending task(s).`);
         } catch (err) { console.error("[Orchestrator] Re-score error:", err.message); }
     };
 
     runOrchestratorPredict(); // run immediately after DB connects
+    runOrchestratorRescore(); // run priority scheduling immediately after DB connects
     setInterval(runOrchestratorPredict, 30 * 60 * 1000); // every 30 min
     setInterval(runOrchestratorRescore,  5 * 60 * 1000); // every 5 min
 
@@ -124,6 +142,13 @@ const problemSchema = new mongoose.Schema({
     lng: { type: Number },
     imageUrl: { type: String, required: true },
     reportedBy: { type: String, required: true }, // email
+    requiredSkill: { type: String, default: '' },
+    status: { type: String, default: 'Pending' }, // Pending, Verified
+    assignedVolunteer: {
+        email: { type: String },
+        name: { type: String },
+        phone: { type: String },
+    },
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -450,6 +475,49 @@ app.get('/problems', async (req, res) => {
     }
 });
 
+// Assign Nearest Volunteer to Verify Report Route
+app.post('/problems/:id/assign', async (req, res) => {
+    try {
+        const problemId = req.params.id;
+        const problem = await Problem.findById(problemId);
+        if (!problem) return res.status(404).json({ error: 'Problem not found' });
+        
+        const availableVolunteers = await User.find({ 
+            isVolunteer: true, 
+            lat: { $ne: null }, 
+            lng: { $ne: null }
+        });
+        
+        let qualifiedVolunteers = availableVolunteers;
+        if (problem.requiredSkill) {
+            qualifiedVolunteers = availableVolunteers.filter(v => v.skills && v.skills.includes(problem.requiredSkill));
+        }
+        
+        if (qualifiedVolunteers.length === 0) {
+            return res.status(404).json({ error: 'No qualified volunteers found nearby' });
+        }
+        
+        const volunteersWithDist = qualifiedVolunteers.map(v => ({
+            v,
+            dist: getDistanceFromLatLonInKm(problem.lat, problem.lng, v.lat, v.lng)
+        }));
+        volunteersWithDist.sort((a, b) => a.dist - b.dist);
+        
+        const nearest = volunteersWithDist[0].v;
+        problem.assignedVolunteer = {
+            email: nearest.email,
+            name: nearest.name,
+            phone: nearest.phone
+        };
+        problem.status = 'Verified Pending'; // or 'Assigned'
+        await problem.save();
+        
+        res.status(200).json({ message: 'Volunteer assigned successfully', problem, assignedTo: nearest });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Create Survey Route
 app.post('/surveys', async (req, res) => {
     try {
@@ -626,30 +694,7 @@ app.post('/tasks', async (req, res) => {
             return res.status(500).json({ error: 'Geocoding failed' });
         }
 
-        // Find all volunteers with location
-        const volunteers = await User.find({ isVolunteer: true, lat: { $ne: null }, lng: { $ne: null } });
-        
-        let assignedVolunteers = [];
-        
-        if (volunteers.length > 0) {
-            const volunteersWithDist = volunteers.map(v => ({
-                v,
-                dist: getDistanceFromLatLonInKm(lat, lng, v.lat, v.lng)
-            }));
-            
-            volunteersWithDist.sort((a, b) => a.dist - b.dist);
-            
-            const topN = volunteersWithDist.slice(0, volunteersNeeded);
-            assignedVolunteers = topN.map(item => ({
-                email: item.v.email,
-                name: item.v.name,
-                phone: item.v.phone,
-                status: 'Pending'
-            }));
-        }
-        
-        let status = assignedVolunteers.length > 0 ? 'Assigned' : 'Pending';
-        
+        // Create the task object first without assigned volunteers
         const task = new Task({
             title,
             type,
@@ -657,13 +702,29 @@ app.post('/tasks', async (req, res) => {
             location,
             lat,
             lng,
+            urgency: req.body.urgency || 5,
+            requiredSkills: req.body.requiredSkills || [],
             volunteersNeeded,
             scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
             scheduledTime: scheduledTime || undefined,
-            assignedVolunteers,
+            assignedVolunteers: [],
             rejectedBy: [],
-            status
+            status: 'Pending'
         });
+
+        // Use the Orchestrator to rank volunteers based on skills, location, and urgency
+        const rankedVolunteers = await rankVolunteersForTask(task);
+        
+        if (rankedVolunteers.length > 0) {
+            const topN = rankedVolunteers.slice(0, volunteersNeeded);
+            task.assignedVolunteers = topN.map(item => ({
+                email: item.volunteer.email,
+                name: item.volunteer.name,
+                phone: item.volunteer.phone,
+                status: 'Pending'
+            }));
+            task.status = 'Assigned';
+        }
         
         await task.save();
         
@@ -942,8 +1003,54 @@ app.get('/my-impact', authenticateToken, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
+
+// ── Chatbot Route ────────────────────────────────────────────────────────────
+app.post('/chat', async (req, res) => {
+    try {
+        const { message, history } = req.body;
+        
+        if (!process.env.GEMINI_API_KEY) {
+            return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+        }
+
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+        const systemPrompt = `You are the "Weave Assistant", an intelligent and helpful AI for the Weave platform. 
+Weave is a platform that connects NGOs, volunteers, and communities.
+You can help users find tasks, join communities, report problems, and coordinate volunteer efforts.
+Keep your responses concise, friendly, and formatted nicely.
+Be encouraging and supportive. Use bullet points when listing things.`;
+
+        // Format history for Gemini
+        const formattedHistory = (history || []).map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.text }]
+        }));
+
+        // Initialize chat with history
+        const chat = model.startChat({
+            history: [
+                { role: 'user', parts: [{ text: systemPrompt }] },
+                { role: 'model', parts: [{ text: 'Understood. I am the Weave Assistant.' }] },
+                ...formattedHistory
+            ],
+            generationConfig: {
+                maxOutputTokens: 500,
+            },
+        });
+
+        const result = await chat.sendMessage(message);
+        const responseText = result.response.text();
+
+        res.status(200).json({ response: responseText });
+    } catch (err) {
+        console.error('Chat API Error:', err);
+        res.status(500).json({ error: 'Failed to generate response. Ensure API key is valid.' });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
 });
-
 

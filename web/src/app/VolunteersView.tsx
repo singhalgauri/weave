@@ -15,6 +15,13 @@ interface Volunteer {
   profilePic: string;
 }
 
+const VOLUNTEER_SEED: Volunteer[] = [
+  { _id: "v1", name: "Riya Sharma", email: "riya@example.com", phone: "+91-9876543210", location: "New Delhi", address: "Connaught Place, New Delhi", aadhaar: "XXXX-XXXX-1234", skills: ["First Aid", "Teaching"], interests: ["Education", "Health"], profilePic: "" },
+  { _id: "v2", name: "Amit Patel", email: "amit@example.com", phone: "+91-8765432109", location: "Mumbai", address: "Andheri West, Mumbai", aadhaar: "XXXX-XXXX-5678", skills: ["Logistics", "Event Management"], interests: ["Environment"], profilePic: "" },
+  { _id: "v3", name: "Sneha Reddy", email: "sneha@example.com", phone: "+91-7654321098", location: "Bengaluru", address: "Indiranagar, Bengaluru", aadhaar: "XXXX-XXXX-9012", skills: ["Social Media", "Content Writing"], interests: ["Women's Rights", "Education"], profilePic: "" },
+  { _id: "v4", name: "Vikram Singh", email: "vikram@example.com", phone: "+91-6543210987", location: "Jaipur", address: "Malviya Nagar, Jaipur", aadhaar: "XXXX-XXXX-3456", skills: ["Driving", "Heavy Lifting"], interests: ["Food Security", "Livelihood"], profilePic: "" },
+];
+
 export default function VolunteersView() {
   const [view, setView] = useState<"dashboard" | "list" | "profile">("dashboard");
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
@@ -27,13 +34,24 @@ export default function VolunteersView() {
     if (view === "list" || view === "dashboard") {
       setIsLoading(true);
       fetch(`${API_URL}/volunteers`)
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok || !res.headers.get("content-type")?.includes("application/json")) {
+            console.warn("Backend volunteers unavailable, using seed data.");
+            return VOLUNTEER_SEED;
+          }
+          return res.json();
+        })
         .then((data) => {
           if (Array.isArray(data)) {
             setVolunteers(data);
+          } else {
+            setVolunteers(VOLUNTEER_SEED);
           }
         })
-        .catch((err) => console.error("Error fetching volunteers:", err))
+        .catch((err) => {
+          console.error("Error fetching volunteers:", err);
+          setVolunteers(VOLUNTEER_SEED);
+        })
         .finally(() => setIsLoading(false));
     }
   }, [view]);
